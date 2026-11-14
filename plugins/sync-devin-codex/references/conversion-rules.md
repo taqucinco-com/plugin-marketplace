@@ -31,7 +31,7 @@
 - `Bash(cmd *)` は `Exec(cmd)`。`Exec` は単語単位の前方一致で glob を使えないため、末尾の `*` を落とす。`--force*` のようにトークン末尾に付いた `*` も落とす。旧形式の `Bash(cmd:*)` は `Bash(cmd *)` として扱う。
 - `Bash(cat .env*)` のように、ファイル読み取りコマンド(`cat`・`less`・`more`・`head`・`tail`・`bat`)の引数に glob を含むルールは、リポジトリ内で一致する実在ファイルを列挙して `Exec(cat .env)`、`Exec(cat .env.local)` のような完全一致に置き換える。一致するファイルが無い glob は警告して捨てる。この展開は同期時点のスナップショットなので、新しい秘密情報ファイルを追加したらスキルを再実行する。CI で `--check` を実行すると、同期漏れを検知できる(`references/ci-example.yml`)。主な防御はパスのルール(`Read`、Codex の filesystem)で、この展開は補助。対象は上記の読み取りコマンドだけで、`grep`・`cp` などは対象外。
 - 上記以外で glob が残るルールは警告してスキップする。
-- `settings.json` の他のキーを書き換えない。`.devin/config.json` の `permissions.deny` のうち、生成した項目だけを管理する。生成した項目の一覧は `.devin/.sync-devin-codex.json` に記録し、手で追加した項目は残す。`.claude/` 側のルールをすべて消すと、生成した項目だけが取り除かれる。
+- `settings.json` の他のキーを書き換えない。`.devin/config.json` の `permissions.deny` は `.claude/settings.json` から毎回全置換して生成する。`.devin/config.json` に手で足した deny 項目は、再同期で消える。`permissions` 以外のキーは残す。`.claude/` 側のルールをすべて消すと、`deny` も消える。旧版が作っていた状態ファイル `.devin/.sync-devin-codex.json` は参照せず、あれば再同期時に削除する。
 
 ### Codex
 

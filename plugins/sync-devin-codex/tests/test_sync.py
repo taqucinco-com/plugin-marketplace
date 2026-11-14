@@ -70,22 +70,37 @@ class LegacyBashSyntax(Base):
         self.assertNotIn(":", rules.split("prefix_rule(")[1].split("justification")[0])
 
 
-class DevinDenyOwnership(Base):
-    def test_user_entries_kept_and_generated_removed(self):  # 指摘2
+class DevinDenyReplace(Base):
+    def test_deny_is_fully_replaced_and_other_keys_kept(self):  # issue #3
         self.r.settings(["Read(./.env)", "Bash(sudo *)"])
         self.r.sync()
         cfg = json.loads(self.r.read(".devin/config.json"))
-        cfg["permissions"]["deny"].insert(0, "Read(./my-own)")
+        cfg["permissions"]["deny"].insert(0, "Read(./my-own)")  # 手で足した項目は消える
+        cfg["permissions"]["allow"] = ["Exec(ls)"]  # deny 以外は残る
+        cfg["other"] = 1
         self.r.write(".devin/config.json", json.dumps(cfg))
         self.r.sync()
-        self.assertEqual(json.loads(self.r.read(".devin/config.json"))["permissions"]["deny"][0], "Read(./my-own)")
+        cfg = json.loads(self.r.read(".devin/config.json"))
+        self.assertEqual(cfg["permissions"]["deny"], ["Read(./.env)", "Exec(sudo)"])
+        self.assertEqual(cfg["permissions"]["allow"], ["Exec(ls)"])
+        self.assertEqual(cfg["other"], 1)
         self.r.settings([])  # Claude 側のルールをすべて消す
         code, _, _ = self.r.sync()
         self.assertEqual(code, 0)
-        self.assertEqual(json.loads(self.r.read(".devin/config.json"))["permissions"]["deny"], ["Read(./my-own)"])
+        cfg = json.loads(self.r.read(".devin/config.json"))
+        self.assertNotIn("deny", cfg["permissions"])
+        self.assertEqual(cfg["permissions"]["allow"], ["Exec(ls)"])
         self.assertFalse((self.r.root / ".codex/rules/deny.rules").exists())
-        self.assertFalse((self.r.root / sync.DEVIN_STATE).exists())
         self.assertEqual(self.r.sync(check=True)[0], 0)
+
+    def test_no_state_file_and_legacy_one_is_removed(self):  # issue #3
+        self.r.settings(["Read(./.env)"])
+        self.r.write(".devin/.sync-devin-codex.json", '{"deny": ["Read(./.env)"]}')
+        self.r.sync()
+        self.assertFalse((self.r.root / ".devin/.sync-devin-codex.json").exists())
+        self.r.settings(["Read(./.env)", "Exec(x)"])
+        self.r.sync()
+        self.assertFalse((self.r.root / ".devin/.sync-devin-codex.json").exists())
 
 
 class FrontmatterAndAgents(Base):

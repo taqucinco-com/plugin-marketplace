@@ -37,7 +37,7 @@ BEGIN = "# >>> sync-devin-codex ({name}) >>>"
 END = "# <<< sync-devin-codex ({name}) <<<"
 AGENT_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 DENY_RULES_HEADER = "# sync-devin-codex が .claude/settings.json の permissions.deny から生成した。手で編集しない。"
-DEVIN_STATE = ".devin/.sync-devin-codex.json"  # Devin の deny のうち、このスクリプトが生成した項目
+LEGACY_DEVIN_STATE = ".devin/.sync-devin-codex.json"  # 旧版が作っていた状態ファイル。再同期時に削除する
 
 
 class Plan:
@@ -307,7 +307,7 @@ def exec_specs(p: Plan, arg: str):
 
 
 def plan_devin_permissions(p: Plan, rules, specs) -> None:
-    """生成した項目だけを管理し、手で追加した項目は残す。ルールが空になったら生成分を取り除く。"""
+    """permissions.deny は .claude/ から毎回全置換する。permissions 以外のキーは残す。"""
     generated: list[str] = []
     if rules:
         for tool, arg in rules:
@@ -321,26 +321,20 @@ def plan_devin_permissions(p: Plan, rules, specs) -> None:
             else:
                 generated += [f"Exec({s[1]} {x})" for x in s[2]]
         generated = list(dict.fromkeys(generated))
-    state_text = p.read(DEVIN_STATE)
-    previous = json.loads(state_text).get("deny", []) if state_text else []
-    if not generated and not previous:
-        return
+    if (p.root / LEGACY_DEVIN_STATE).is_file():
+        p.deletes.append(LEGACY_DEVIN_STATE)
     config_path = p.root / ".devin" / "config.json"
     data = load_json(config_path)
     perms = data.setdefault("permissions", {})
-    deny = list(dict.fromkeys([x for x in perms.get("deny", []) if x not in previous] + generated))
-    if deny:
-        perms["deny"] = deny
-    else:
-        perms.pop("deny", None)
-        if not perms:
-            data.pop("permissions")
-    if data or config_path.is_file():
-        p.file(".devin/config.json", json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    if not generated and "deny" not in perms:
+        return
     if generated:
-        p.file(DEVIN_STATE, json.dumps({"deny": generated}, indent=2, ensure_ascii=False) + "\n")
-    elif state_text:
-        p.deletes.append(DEVIN_STATE)
+        perms["deny"] = generated
+    else:
+        perms.pop("deny")
+    if not perms:
+        data.pop("permissions")
+    p.file(".devin/config.json", json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
 def plan_codex_permissions(p: Plan, rules, specs) -> tuple[str, str]:
