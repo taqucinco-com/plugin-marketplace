@@ -641,5 +641,54 @@ class NormalizeKeepsFormatMatchingExtension(TmpCase):
         self.assertIn("画像", r.stderr)
 
 
+def minimal_jpeg(width, height):
+    """サイズだけを読めれば足りる、最小限の JPEG のヘッダ(SOI + SOF0)。"""
+    sof = b"\xff\xc0\x00\x11\x08" + height.to_bytes(2, "big") + width.to_bytes(2, "big") + b"\x03" + b"\x01\x22\x00\x02\x11\x01\x03\x11\x01"
+    return b"\xff\xd8" + sof + b"\xff\xd9"
+
+
+class DecideImageSize(TmpCase):
+    ENV = {"DECISION_AI": "1", "OPENAI_API_KEY": SENTINEL}
+
+    def test_image_size_reads_png_and_jpeg(self):
+        d = load_decide()
+        png = self.dir / "a.png"
+        write_png(png, 30, 70)
+        self.assertEqual(d.image_size(png.read_bytes()), (30, 70))
+        self.assertEqual(d.image_size(minimal_jpeg(480, 1040)), (480, 1040))
+
+    def test_image_size_is_none_for_unknown_formats(self):
+        d = load_decide()
+        self.assertIsNone(d.image_size(b"RIFF....WEBPVP8 "))
+        self.assertIsNone(d.image_size(b""))
+        self.assertIsNone(d.image_size(b"\xff\xd8\xff"))  # 壊れた JPEG でも落ちない
+
+    def test_different_sizes_exit_7_without_network(self):
+        d = load_decide()
+        images = [("before", "image/png", "x", (480, 1040)), ("after", "image/png", "x", (1206, 2622))]
+        with self.assertRaises(SystemExit) as cm:
+            d.check_same_size(images)
+        self.assertEqual(cm.exception.code, 7)
+
+    def test_same_sizes_and_unreadable_sizes_pass(self):
+        d = load_decide()
+        d.check_same_size([("a", "image/png", "x", (480, 1040)), ("b", "image/png", "x", (480, 1040))])
+        # サイズを読めない画像(WebP など)は、確認の対象外
+        d.check_same_size([("a", "image/png", "x", (480, 1040)), ("b", "image/webp", "x", None)])
+        d.check_same_size([("only", "image/png", "x", (1, 1))])
+
+    def test_cli_stops_with_7_before_any_request_and_hides_key(self):
+        a, b = self.dir / "a.png", self.dir / "b.png"
+        write_png(a, 480, 1040)
+        write_png(b, 1206, 2622)
+        t = self.dir / "t.txt"
+        t.write_text("期待", encoding="utf-8")
+        r = run_decide(self.ENV, "--element", "あるか", "--text", f"期待={t}", "--image", f"before={a}", "--image", f"after={b}")
+        self.assertEqual(r.returncode, 7)
+        self.assertIn("normalize-image.sh", r.stderr)
+        self.assertIn("480x1040", r.stderr)
+        self.assertNotIn(SENTINEL, r.stdout + r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

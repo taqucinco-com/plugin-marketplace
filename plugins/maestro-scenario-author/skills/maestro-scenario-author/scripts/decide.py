@@ -50,6 +50,8 @@ API キーの扱い(厳守):
   4   通信できない・タイムアウト(サンドボックスで api.openai.com が許可されていない場合など)
   5   API がエラーを返した(認証・入力不正など)。ステータスコードだけを出す
   6   応答の形が想定と違う
+  7   --image に、サイズの違う画像が混ざっている(通信しない)。normalize-image.sh で、すべてを同じ
+      標準サイズにそろえてから、もう一度実行する(比較する画像のサイズが違うと、判定がぶれるため)
   10  DECISION_AI が無効(利用者が有効にしていない。異常ではない)
 """
 import argparse
@@ -57,6 +59,7 @@ import base64
 import http.client
 import json
 import os
+import struct
 import sys
 import urllib.error
 import urllib.request
@@ -74,7 +77,7 @@ UNUSABLE_MIN = 0.5  # screen_not_usable がこの値以上なら、評価でき�
 ELEMENT_PREFIX = "expect_"
 VISUAL_PREFIX = "expect_v"  # 文言のない要素(--element-visual)
 
-EXIT_ARGS, EXIT_NO_KEY, EXIT_NETWORK, EXIT_API, EXIT_SHAPE, EXIT_DISABLED = 2, 3, 4, 5, 6, 10
+EXIT_ARGS, EXIT_NO_KEY, EXIT_NETWORK, EXIT_API, EXIT_SHAPE, EXIT_SIZE, EXIT_DISABLED = 2, 3, 4, 5, 6, 7, 10
 
 
 def fail(code, message):
@@ -299,15 +302,48 @@ def read_text(path):
         fail(EXIT_ARGS, f"テキストを読めません: {e.__class__.__name__}")
 
 
+def image_size(data):
+    """PNG / JPEG のバイト列から (幅, 高さ) を返す。読み取れない形式(WebP など)は None。標準ライブラリのみ。"""
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR" and len(data) >= 24:
+        return struct.unpack(">II", data[16:24])
+    if data[:2] == b"\xff\xd8":
+        i = 2
+        while i + 9 < len(data):
+            if data[i] != 0xFF:
+                i += 1
+                continue
+            marker = data[i + 1]
+            if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7 or marker == 0xFF:
+                i += 1 if marker == 0xFF else 2
+                continue
+            if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+                height, width = struct.unpack(">HH", data[i + 5 : i + 9])
+                return width, height
+            i += 2 + struct.unpack(">H", data[i + 2 : i + 4])[0]
+    return None
+
+
 def read_image(path):
     ext = os.path.splitext(path)[1].lower()
     if ext not in MIME:
         fail(EXIT_ARGS, "画像は png / jpg / jpeg / webp のいずれかにしてください")
     try:
         with open(path, "rb") as f:
-            return MIME[ext], base64.b64encode(f.read()).decode("ascii")
+            data = f.read()
     except OSError as e:
         fail(EXIT_ARGS, f"画像を読めません: {e.__class__.__name__}")
+    return MIME[ext], base64.b64encode(data).decode("ascii"), image_size(data)
+
+
+def check_same_size(images):
+    """複数の画像のサイズが違うときは、通信せずに終了コード 7 で止める。サイズを読めない画像は、確認の対象外。
+
+    images: [(ラベル, mime, base64, (幅, 高さ) または None)]
+    """
+    sized = [(label, size) for label, _, _, size in images if size]
+    if len({size for _, size in sized}) > 1:
+        detail = "、".join(f"{label}: {w}x{h}" for label, (w, h) in sized)
+        fail(EXIT_SIZE, f"画像のサイズが違います({detail})。normalize-image.sh で、同じ標準サイズにそろえてから、もう一度実行してください")
 
 
 def call_api(body, key):
@@ -356,9 +392,13 @@ def main():
     images = [(label, *read_image(path)) for label, path in map(split_labeled, args.image)]
     if not texts and not images:
         fail(EXIT_ARGS, "--text か --image が必要です")
+    check_same_size(images)
 
     # キーはここで初めて取り出し、リクエストのヘッダにだけ使う
-    response = call_api(build_request(questions, texts, images), os.environ["OPENAI_API_KEY"].strip())
+    response = call_api(
+        build_request(questions, texts, [(label, mime, b64) for label, mime, b64, _ in images]),
+        os.environ["OPENAI_API_KEY"].strip(),
+    )
     if args.raw:
         # 応答だけを出す。リクエスト(画像・テキスト)とキーは出さない
         print(json.dumps(response, ensure_ascii=False, indent=2), file=sys.stderr)
