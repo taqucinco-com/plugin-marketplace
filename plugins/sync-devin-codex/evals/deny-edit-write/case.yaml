@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: deny-edit-write
+description: Edit・Write だけの deny が Codex の config.toml で "deny" になる(読み取り専用の "read" にならない)
+tags: [codex, permissions]
+context:
+  scaffold_script: fixture.sh

@@ -37,7 +37,7 @@ BEGIN = "# >>> sync-devin-codex ({name}) >>>"
 END = "# <<< sync-devin-codex ({name}) <<<"
 AGENT_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 DENY_RULES_HEADER = "# sync-devin-codex が .claude/settings.json の permissions.deny から生成した。手で編集しない。"
-DEVIN_STATE = ".devin/.sync-devin-codex.json"  # Devin の deny のうち、このスクリプトが生成した項目
+LEGACY_DEVIN_STATE = ".devin/.sync-devin-codex.json"  # 旧版が作っていた状態ファイル。再同期時に削除する
 
 
 class Plan:
@@ -51,6 +51,7 @@ class Plan:
         self.deletes: list[str] = []  # 生成物のうち、不要になったもの
         self.codex_agents = False  # .codex/agents/ を管理対象にするか
         self.snapshot_warned = False
+        self.skip: dict[str, set[str]] = {"devin": set(), "codex": set()}  # 変換対象から外す deny ルール
 
     def file(self, rel: str, content: str, executable: bool = False) -> None:
         self.files[rel] = (content, executable)
@@ -264,7 +265,8 @@ def find_files(root: Path, pattern: str) -> list[str]:
     found: list[str] = []
     if pattern.startswith("**/") and "/" not in pattern[3:]:
         for cur, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+            dirs[:] = [d for d in dirs
+                       if d not in SKIP_DIRS and not (Path(cur) / d / ".git").is_file()]
             found += [str((Path(cur) / f).relative_to(root).as_posix())
                       for f in files if fnmatch.fnmatch(f, pattern[3:])]
     else:
@@ -306,7 +308,7 @@ def exec_specs(p: Plan, arg: str):
 
 
 def plan_devin_permissions(p: Plan, rules, specs) -> None:
-    """生成した項目だけを管理し、手で追加した項目は残す。ルールが空になったら生成分を取り除く。"""
+    """permissions.deny は .claude/ から毎回全置換する。permissions 以外のキーは残す。"""
     generated: list[str] = []
     if rules:
         for tool, arg in rules:
@@ -320,30 +322,24 @@ def plan_devin_permissions(p: Plan, rules, specs) -> None:
             else:
                 generated += [f"Exec({s[1]} {x})" for x in s[2]]
         generated = list(dict.fromkeys(generated))
-    state_text = p.read(DEVIN_STATE)
-    previous = json.loads(state_text).get("deny", []) if state_text else []
-    if not generated and not previous:
-        return
+    if (p.root / LEGACY_DEVIN_STATE).is_file():
+        p.deletes.append(LEGACY_DEVIN_STATE)
     config_path = p.root / ".devin" / "config.json"
     data = load_json(config_path)
     perms = data.setdefault("permissions", {})
-    deny = list(dict.fromkeys([x for x in perms.get("deny", []) if x not in previous] + generated))
-    if deny:
-        perms["deny"] = deny
-    else:
-        perms.pop("deny", None)
-        if not perms:
-            data.pop("permissions")
-    if data or config_path.is_file():
-        p.file(".devin/config.json", json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    if not generated and "deny" not in perms:
+        return
     if generated:
-        p.file(DEVIN_STATE, json.dumps({"deny": generated}, indent=2, ensure_ascii=False) + "\n")
-    elif state_text:
-        p.deletes.append(DEVIN_STATE)
+        perms["deny"] = generated
+    else:
+        perms.pop("deny")
+    if not perms:
+        data.pop("permissions")
+    p.file(".devin/config.json", json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
 def plan_codex_permissions(p: Plan, rules, specs) -> tuple[str, str]:
-    """config.toml の (top, tables) 断片を返す。Edit/Writeだけのルールは読み取り専用("read")にする。"""
+    """config.toml の (top, tables) 断片を返す。Read・Edit・Writeのいずれも"deny"にする。"""
     fs: dict[str, str] = {}
     for tool, arg in rules:
         if tool not in {"Read", "Edit", "Write"}:
@@ -353,10 +349,8 @@ def plan_codex_permissions(p: Plan, rules, specs) -> tuple[str, str]:
             continue
         base = arg[2:] if arg.startswith("./") else arg
         base = base[3:] if base.startswith("**/") else base
-        mode = "deny" if tool == "Read" else "read"
         for key in (base, "**/" + base):
-            if fs.get(key) != "deny":  # 読み取りの拒否が優先
-                fs[key] = mode
+            fs[key] = "deny"  # Codexのファイル権限は読み取りと書き込みを分けられない
     top, tables = "", ""
     if fs:
         top = 'default_permissions = "project"'
@@ -373,7 +367,10 @@ def plan_codex_permissions(p: Plan, rules, specs) -> tuple[str, str]:
 
 
 def plan_permissions(p: Plan, devin: bool, codex: bool) -> tuple[str, str]:
-    """Devin/Codexのpermissionsを計画し、config.toml用の (top, tables) 断片を返す。"""
+    """Devin/Codexのpermissionsを計画し、config.toml用の (top, tables) 断片を返す。
+
+    --skip-deny で指定されたルール(リポジトリ固有のルール)は、そのターゲットでは変換しない。
+    """
     rules = parse_rules(p)
     specs = []
     for tool, arg in rules:
@@ -383,9 +380,15 @@ def plan_permissions(p: Plan, devin: bool, codex: bool) -> tuple[str, str]:
                 specs.append((arg, s))
         elif tool not in {"Read", "Edit", "Write"}:
             p.warn(f"{tool}({arg}): 変換対象外のツールです")
+
+    def pick(target):
+        skip = p.skip[target]
+        return ([r for r in rules if f"{r[0]}({r[1]})" not in skip],
+                [x for x in specs if f"Bash({x[0]})" not in skip])
+
     if devin:
-        plan_devin_permissions(p, rules, specs)
-    return plan_codex_permissions(p, rules, specs) if codex else ("", "")
+        plan_devin_permissions(p, *pick("devin"))
+    return plan_codex_permissions(p, *pick("codex")) if codex else ("", "")
 
 
 def build_deny_rules(specs) -> str:
@@ -495,8 +498,10 @@ def plan_codex_config(p: Plan, top: str, tables: str, mcp_tables: str) -> None:
         p.file(".codex/config.toml", text)
 
 
-def build_plan(root: Path, targets: set[str]) -> Plan:
+def build_plan(root: Path, targets: set[str], skip: dict[str, set[str]] | None = None) -> Plan:
     p = Plan(root)
+    if skip:
+        p.skip = skip
     devin, codex = "devin" in targets, "codex" in targets
     plan_skills(p, devin, codex)
     plan_agents(p, devin, codex)
@@ -580,7 +585,18 @@ def main() -> int:
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--target", choices=["all", "devin", "codex"], default="all")
     ap.add_argument("--root")
+    ap.add_argument("--skip-deny", action="append", default=[], metavar="[devin:|codex:]RULE",
+                    help="リポジトリ固有のルールとして、deny ルール(例: 'Bash(git push *)')を変換しない。"
+                         "先頭に devin: か codex: を付けるとそのターゲットだけ。繰り返し指定できる")
     args = ap.parse_args()
+    skip: dict[str, set[str]] = {"devin": set(), "codex": set()}
+    for item in args.skip_deny:
+        head, sep, rest = item.partition(":")
+        if sep and head in skip:
+            skip[head].add(rest.strip())
+        else:
+            for t in skip:
+                skip[t].add(item.strip())
     if args.root:
         root = Path(args.root).resolve()
     else:
@@ -590,7 +606,7 @@ def main() -> int:
         print(f"{root}/.claude が見つかりません", file=sys.stderr)
         return 2
     targets = {"devin", "codex"} if args.target == "all" else {args.target}
-    return apply(build_plan(root, targets), args.check)
+    return apply(build_plan(root, targets, skip), args.check)
 
 
 if __name__ == "__main__":

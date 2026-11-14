@@ -4,14 +4,14 @@ Claude Code のプラグインマーケットプレイス。
 
 ## 使い方
 ```
-/plugin marketplace add <owner>/plugin-marketplace
-/plugin install hello-plugin@plugin-marketplace
+/plugin marketplace add taqucinco-com/plugin-marketplace
+/plugin install sync-devin-codex@plugin-marketplace
 ```
-ローカルでは `claude plugin marketplace add ./` で追加できます。
+ローカルでは、リポジトリのルートで `claude plugin marketplace add ./` を実行すると追加できます。
 
 ### Codex
 ```
-codex plugin marketplace add <owner>/plugin-marketplace
+codex plugin marketplace add taqucinco-com/plugin-marketplace
 codex plugin add sync-devin-codex@plugin-marketplace
 ```
 Codex 用の定義は `.agents/plugins/marketplace.json` と各プラグインの `.codex-plugin/plugin.json`。
@@ -19,7 +19,7 @@ Codex 用の定義は `.agents/plugins/marketplace.json` と各プラグイン�
 ### Devin
 各プラグインは `.devin-plugin/plugin.json`(`.claude-plugin/plugin.json` へのシンボリックリンク)を持つ。
 ```
-devin plugins install <owner>/plugin-marketplace#plugins/sync-devin-codex
+devin plugins install taqucinco-com/plugin-marketplace#plugins/sync-devin-codex
 devin plugins install --local ./plugins/sync-devin-codex   # ローカル確認
 ```
 Devin は `marketplace.json` を読まず、プラグイン単位でインストールする。

@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: repo-specific-rule
+description: .devin/global_rules.md に書かれた Devin 向けのリポジトリ固有ルール(git push を拒否しない)が、既定の変換より優先される
+tags: [devin, codex, permissions]
+context:
+  scaffold_script: fixture.sh

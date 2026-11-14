@@ -38,8 +38,8 @@ class Repo:
     def settings(self, deny):
         self.write(".claude/settings.json", json.dumps({"permissions": {"deny": deny}}))
 
-    def sync(self, check=False, targets=("devin", "codex")):
-        plan = sync.build_plan(self.root, set(targets))
+    def sync(self, check=False, targets=("devin", "codex"), skip=None):
+        plan = sync.build_plan(self.root, set(targets), skip)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             code = sync.apply(plan, check)
@@ -70,22 +70,46 @@ class LegacyBashSyntax(Base):
         self.assertNotIn(":", rules.split("prefix_rule(")[1].split("justification")[0])
 
 
-class DevinDenyOwnership(Base):
-    def test_user_entries_kept_and_generated_removed(self):  # 指摘2
+class DevinDenyReplace(Base):
+    def test_deny_is_fully_replaced_and_other_keys_kept(self):  # issue #3
         self.r.settings(["Read(./.env)", "Bash(sudo *)"])
         self.r.sync()
         cfg = json.loads(self.r.read(".devin/config.json"))
-        cfg["permissions"]["deny"].insert(0, "Read(./my-own)")
+        cfg["permissions"]["deny"].insert(0, "Read(./my-own)")  # 手で足した項目は消える
+        cfg["permissions"]["allow"] = ["Exec(ls)"]  # deny 以外は残る
+        cfg["other"] = 1
         self.r.write(".devin/config.json", json.dumps(cfg))
         self.r.sync()
-        self.assertEqual(json.loads(self.r.read(".devin/config.json"))["permissions"]["deny"][0], "Read(./my-own)")
+        cfg = json.loads(self.r.read(".devin/config.json"))
+        self.assertEqual(cfg["permissions"]["deny"], ["Read(./.env)", "Exec(sudo)"])
+        self.assertEqual(cfg["permissions"]["allow"], ["Exec(ls)"])
+        self.assertEqual(cfg["other"], 1)
         self.r.settings([])  # Claude 側のルールをすべて消す
         code, _, _ = self.r.sync()
         self.assertEqual(code, 0)
-        self.assertEqual(json.loads(self.r.read(".devin/config.json"))["permissions"]["deny"], ["Read(./my-own)"])
+        cfg = json.loads(self.r.read(".devin/config.json"))
+        self.assertNotIn("deny", cfg["permissions"])
+        self.assertEqual(cfg["permissions"]["allow"], ["Exec(ls)"])
         self.assertFalse((self.r.root / ".codex/rules/deny.rules").exists())
-        self.assertFalse((self.r.root / sync.DEVIN_STATE).exists())
         self.assertEqual(self.r.sync(check=True)[0], 0)
+
+    def test_no_state_file_and_legacy_one_is_removed(self):  # issue #3
+        self.r.settings(["Read(./.env)"])
+        self.r.write(".devin/.sync-devin-codex.json", '{"deny": ["Read(./.env)"]}')
+        self.r.sync()
+        self.assertFalse((self.r.root / ".devin/.sync-devin-codex.json").exists())
+        self.r.settings(["Read(./.env)", "Exec(x)"])
+        self.r.sync()
+        self.assertFalse((self.r.root / ".devin/.sync-devin-codex.json").exists())
+
+
+class SkipDeny(Base):
+    def test_repo_specific_rule_is_skipped_per_target(self):
+        self.r.settings(["Bash(git push *)", "Read(./.env)"])
+        self.r.sync(skip={"devin": {"Bash(git push *)"}, "codex": set()})
+        deny = json.loads(self.r.read(".devin/config.json"))["permissions"]["deny"]
+        self.assertEqual(deny, ["Read(./.env)"])  # Devin では git push を拒否しない
+        self.assertIn('pattern = ["git", "push"]', self.r.read(".codex/rules/deny.rules"))  # Codex は従来どおり
 
 
 class FrontmatterAndAgents(Base):
@@ -140,13 +164,14 @@ class FrontmatterAndAgents(Base):
 
 
 class CodexFilesystem(Base):
-    def test_edit_only_is_read_only_and_read_is_deny(self):  # 指摘5
+    def test_read_edit_write_are_all_deny(self):  # 指摘5
         self.r.settings(["Read(./.env)", "Edit(./.env)", "Edit(src/generated/**)", "Write(~/x)"])
         _, out, _ = self.r.sync()
         cfg = self.r.read(".codex/config.toml")
         self.assertIn('".env" = "deny"', cfg)
-        self.assertIn('"src/generated/**" = "read"', cfg)
-        self.assertIn('"**/src/generated/**" = "read"', cfg)
+        self.assertIn('"src/generated/**" = "deny"', cfg)
+        self.assertIn('"**/src/generated/**" = "deny"', cfg)
+        self.assertNotIn('"read"', cfg)
         self.assertNotIn("~", cfg)
         self.assertIn("~ や絶対パス", out)
 
@@ -162,6 +187,19 @@ class GlobSnapshot(Base):
         self.assertEqual(self.r.sync(check=True)[0], 1)  # --check が新しい秘密ファイルを検知する
         self.r.sync()
         self.assertIn(".env.production", self.r.read(".codex/rules/deny.rules"))
+
+
+class WorktreeSkip(Base):
+    def test_files_in_linked_worktrees_are_not_expanded(self):
+        self.r.write(".env", "")
+        self.r.write(".env.sample", "")
+        self.r.write("wt/.git", "gitdir: ../.git/worktrees/wt\n")
+        self.r.write("wt/.env.sample", "")
+        self.r.settings(["Bash(cat .env*)", "Bash(cat **/.env*)"])
+        self.r.sync()
+        rules = self.r.read(".codex/rules/deny.rules")
+        self.assertIn(".env.sample", rules)
+        self.assertNotIn("wt/", rules)
 
 
 class CodexConfigToml(Base):

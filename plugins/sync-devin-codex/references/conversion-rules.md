@@ -31,11 +31,12 @@
 - `Bash(cmd *)` は `Exec(cmd)`。`Exec` は単語単位の前方一致で glob を使えないため、末尾の `*` を落とす。`--force*` のようにトークン末尾に付いた `*` も落とす。旧形式の `Bash(cmd:*)` は `Bash(cmd *)` として扱う。
 - `Bash(cat .env*)` のように、ファイル読み取りコマンド(`cat`・`less`・`more`・`head`・`tail`・`bat`)の引数に glob を含むルールは、リポジトリ内で一致する実在ファイルを列挙して `Exec(cat .env)`、`Exec(cat .env.local)` のような完全一致に置き換える。一致するファイルが無い glob は警告して捨てる。この展開は同期時点のスナップショットなので、新しい秘密情報ファイルを追加したらスキルを再実行する。CI で `--check` を実行すると、同期漏れを検知できる(`references/ci-example.yml`)。主な防御はパスのルール(`Read`、Codex の filesystem)で、この展開は補助。対象は上記の読み取りコマンドだけで、`grep`・`cp` などは対象外。
 - 上記以外で glob が残るルールは警告してスキップする。
-- `settings.json` の他のキーを書き換えない。`.devin/config.json` の `permissions.deny` のうち、生成した項目だけを管理する。生成した項目の一覧は `.devin/.sync-devin-codex.json` に記録し、手で追加した項目は残す。`.claude/` 側のルールをすべて消すと、生成した項目だけが取り除かれる。
+- リポジトリ固有のルール(変換しない deny)は既定の変換より優先する。Devin 向けは `.devin/global_rules.md`(Devin の常時適用ルール。同名の `.windsurf/global_rules.md` より優先される)、Codex 向けと共通のものは `AGENTS.md`・`CLAUDE.md` に明記する。Devin 向けの記述が食い違えば `.devin/global_rules.md` を優先する。`.devin/global_rules.md` はこのスキルが生成も上書きもしない。`--skip-deny '[devin:|codex:]ルール'` で、該当ルールをそのターゲットの生成物から外す(例: `devin:Bash(git push *)`)。ルールは `settings.json` の `permissions.deny` の文字列と完全一致で指定する。
+- `settings.json` の他のキーを書き換えない。`.devin/config.json` の `permissions.deny` は `.claude/settings.json` から毎回全置換して生成する。`.devin/config.json` に手で足した deny 項目は、再同期で消える。`permissions` 以外のキーは残す。`.claude/` 側のルールをすべて消すと、`deny` も消える。旧版が作っていた状態ファイル `.devin/.sync-devin-codex.json` は参照せず、あれば再同期時に削除する。
 
 ### Codex
 
-- `config.toml`: `[permissions.project.filesystem.":workspace_roots"]` に変換する。`Read` のパスは `"glob" = "deny"`(読み取りも書き込みも拒否)、`Edit`・`Write` だけのパスは `"glob" = "read"`(読み取り専用)にする。同じパスに両方あれば `deny` を優先する。先頭の `./` と `**/` を外した形と、`**/` 付きの形を併記する(`**/` 付きの glob はワークスペース直下のファイルに一致しない可能性があるため)。`~` で始まるパスと絶対パスは表現できないため、警告してスキップする。`default_permissions = "project"` も設定する。
+- `config.toml`: `[permissions.project.filesystem.":workspace_roots"]` に変換する。`Read`・`Edit`・`Write` のパスはいずれも `"glob" = "deny"` にする。Codex のファイル権限は読み取りと書き込みを分けられず、`deny` は両方を拒否する。先頭の `./` と `**/` を外した形と、`**/` 付きの形を併記する(`**/` 付きの glob はワークスペース直下のファイルに一致しない可能性があるため)。`~` で始まるパスと絶対パスは表現できないため、警告してスキップする。`default_permissions = "project"` も設定する。
 - `config.toml` は、`# >>> sync-devin-codex (名前) >>>` で囲んだ区間(`permissions`、`permissions-tables`、`mcp-servers`)だけを管理し、既存の区間はその位置で置き換える。区間の外に、生成するテーブルや `default_permissions` と同じ定義があると、TOML が重複して Codex が設定を読めなくなるため、エラーにして `config.toml` を更新しない。
 - `sandbox_mode` と併用できない。`config.toml` に `sandbox_mode` があると `default_permissions` は無視されるため、警告する。
 - `.codex/rules/deny.rules`: `Bash(...)` のルールを Starlark の `prefix_rule(..., decision = "forbidden")` に変換する。`pattern` は引数列の完全なトークン単位の前方一致で、`*` を使えないため落とす。`match` と `not_match` の例を付ける(読み込み時に検証される)。ファイル読み取りコマンドの glob は、列挙したファイル名の選択肢(`./` 付きの形も含む)にする。
