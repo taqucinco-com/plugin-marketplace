@@ -16,8 +16,13 @@
       リクエスト(画像・テキスト)とキーは出さない。Claude が実行する通常の手順では付けない。
       --profile で、summary の判定規則(用途)を切り替える。質問の名前は用途ごとに決まっている。
         ui-verify(既定。ui-core-verify の修正ループ):
+          ここでの判定は「期待の要素が画面にあるか」だけの事前判定で、完了(合格)の判定ではない。
+          完了を決めるのは ui-checker(Claude のサブエージェント。agents/ui-checker.md)だけで、
+          このスクリプトは ui-checker を呼ばない。呼ぶのは SKILL.md に従う呼び出し元の Claude。
           summary.next が "fix" なら、文言のある期待の要素が明らかに欠けている(summary.missing に列挙)。
-          "ui_checker" なら、この結果だけでは決められないので ui-checker に判定させる。
+          呼び出し元は ui-checker を呼ばずに修正へ進める(ループの高速化)。
+          "ui_checker" なら、ここから先は決められないので、呼び出し元が ui-checker を呼んで最終判定させる。
+          全部そろっていても(all_present)完了とはしない。余分な要素・見た目の差・状態はここでは見ていない。
         pr-change(pr-ui-evidence の before/after の変更判定。質問 changed と same_screen):
           summary.next が "changed" / "unchanged" / "check"。unchanged でも画面を証跡から外さない。
         maestro-step(maestro-scenario-author の1ステップごとの進行確認。質問 screen_not_usable と
@@ -137,10 +142,17 @@ def element_verdict(value):
 def summarize_ui_verify(answers):
     """次にどうするかを、数値のしきい値だけで決める(呼び出し側が確率を暗算しないため)。
 
+    これは事前判定であり、合格・完了を返すことはない。"ui_checker" は「ui-checker を呼べ」という指示で、
+    完了を意味しない。ui-checker は Claude のサブエージェント(agents/ui-checker.md)で、最終判定は
+    そちらだけが行う。ここでは ui-checker を呼ばない(呼ぶのは SKILL.md に従う呼び出し元の Claude)。
+
     next:
       "fix"        文言のある期待の要素が明らかに欠けている(missing に列挙)。ui-checker を呼ばず修正へ進める
-      "ui_checker" 決められない、全部そろっている、または文言のない要素だけが欠けて見える
-                   (missing_visual。誤判定の影響が大きいので修正の前に ui-checker で確認する)
+      "ui_checker" ui-checker に最終判定させる。次のいずれか:
+                   - 決められない(uncertain / refusal / screen_not_usable / no_elements)
+                   - 全部そろっている(all_present。完了とはしない。余分な要素・見た目の差・状態は見ていない)
+                   - 文言のない要素だけが欠けて見える(missing_visual。誤判定の影響が大きいので
+                     修正の前に ui-checker で確認する)
     """
     refused = any(a["type"] == "refusal" for a in answers)
     unusable = any(a["name"] == "screen_not_usable" and is_number(a.get("value")) and a["value"] >= UNUSABLE_MIN for a in answers)
