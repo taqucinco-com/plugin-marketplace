@@ -31,7 +31,7 @@
 - `Bash(cmd *)` は `Exec(cmd)`。`Exec` は単語単位の前方一致で glob を使えないため、末尾の `*` を落とす。`--force*` のようにトークン末尾に付いた `*` も落とす。旧形式の `Bash(cmd:*)` は `Bash(cmd *)` として扱う。
 - `Bash(cat .env*)` のように、ファイル読み取りコマンド(`cat`・`less`・`more`・`head`・`tail`・`bat`)の引数に glob を含むルールは、リポジトリ内で一致する実在ファイルを列挙して `Exec(cat .env)`、`Exec(cat .env.local)` のような完全一致に置き換える。一致するファイルが無い glob は警告して捨てる。この展開は同期時点のスナップショットなので、新しい秘密情報ファイルを追加したらスキルを再実行する。CI で `--check` を実行すると、同期漏れを検知できる(`references/ci-example.yml`)。主な防御はパスのルール(`Read`、Codex の filesystem)で、この展開は補助。対象は上記の読み取りコマンドだけで、`grep`・`cp` などは対象外。
 - 上記以外で glob が残るルールは警告してスキップする。
-- リポジトリ固有のルール(`AGENTS.md`・`CLAUDE.md` に明記された、変換しない deny)は既定の変換より優先する。`--skip-deny '[devin:|codex:]ルール'` で、該当ルールをそのターゲットの生成物から外す(例: `devin:Bash(git push *)`)。ルールは `settings.json` の `permissions.deny` の文字列と完全一致で指定する。
+- リポジトリ固有のルール(変換しない deny)は既定の変換より優先する。Devin 向けは `.devin/global_rules.md`(Devin の常時適用ルール。同名の `.windsurf/global_rules.md` より優先される)、Codex 向けと共通のものは `AGENTS.md`・`CLAUDE.md` に明記する。Devin 向けの記述が食い違えば `.devin/global_rules.md` を優先する。`.devin/global_rules.md` はこのスキルが生成も上書きもしない。`--skip-deny '[devin:|codex:]ルール'` で、該当ルールをそのターゲットの生成物から外す(例: `devin:Bash(git push *)`)。ルールは `settings.json` の `permissions.deny` の文字列と完全一致で指定する。
 - `settings.json` の他のキーを書き換えない。`.devin/config.json` の `permissions.deny` は `.claude/settings.json` から毎回全置換して生成する。`.devin/config.json` に手で足した deny 項目は、再同期で消える。`permissions` 以外のキーは残す。`.claude/` 側のルールをすべて消すと、`deny` も消える。旧版が作っていた状態ファイル `.devin/.sync-devin-codex.json` は参照せず、あれば再同期時に削除する。
 
 ### Codex

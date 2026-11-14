@@ -12,8 +12,10 @@ JSON
 cat > AGENTS.md <<'MD'
 # このリポジトリの方針
 
-## Devin・Codex
-- Devin はリモート環境で動くため、`git push` を使えるようにする(Devin の deny には入れない)。
 - Codex は `.claude/settings.json` の deny をそのまま反映する。
+MD
+mkdir -p .devin
+cat > .devin/global_rules.md <<'MD'
+- Devin はリモート環境で動くため、`git push` を使えるようにする(Devin の deny には入れない)。
 MD
 echo "KEY=dummy" > .env

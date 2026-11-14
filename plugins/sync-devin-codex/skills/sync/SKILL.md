@@ -10,7 +10,11 @@ argument-hint: "[--check] [--target devin|codex|all]"
 
 変換スクリプトは、このファイルから見て `../../scripts/sync.py`(プラグインルートの `scripts/sync.py`)にある。以下では、その絶対パスを `<sync.py>` と書く。Claude Code では `${CLAUDE_PLUGIN_ROOT}/scripts/sync.py` と同じ。Codex・Devin ではこのファイルの場所から解決する。
 
-1. リポジトリの `AGENTS.md`・`CLAUDE.md` に、Devin・Codex 向けの同期ルール(変換しない deny ルールなど)が書かれていないか読む。書かれていれば、このスキルの既定の変換よりそちらを優先する。たとえば「Devin では git push を拒否しない」とあれば、該当の deny ルールを `--skip-deny 'devin:Bash(git push *)'` で変換対象から外す(ターゲットの接頭辞を省くと両方から外れる。`--skip-deny` は繰り返し指定できる)。以降の `--check` と書き込みのコマンドには、同じ `--skip-deny` を付ける。リポジトリ側に指定が無ければ、何も付けない。
+1. リポジトリ固有の同期ルール(変換しない deny ルールなど)が書かれていないか読む。書かれていれば、このスキルの既定の変換よりそちらを優先する。読む場所は次のとおり。
+   - Devin 向け: `.devin/global_rules.md`(Devin が常時読み込むファイル。手書きで、このスキルは生成も上書きもしない)。`AGENTS.md`・`CLAUDE.md` に Devin 向けの記述があっても、`.devin/global_rules.md` と食い違えば `.devin/global_rules.md` を優先する。
+   - Codex 向け、および両方に共通: `AGENTS.md`・`CLAUDE.md`。
+
+   たとえば「Devin では git push を拒否しない」とあれば、該当の deny ルールを `--skip-deny 'devin:Bash(git push *)'` で変換対象から外す(ターゲットの接頭辞を省くと両方から外れる。`--skip-deny` は繰り返し指定できる)。以降の `--check` と書き込みのコマンドには、同じ `--skip-deny` を付ける。リポジトリ側に指定が無ければ、何も付けない。
 2. リポジトリのルートで、先に差分を確認する。
 
    ```
@@ -45,5 +49,5 @@ argument-hint: "[--check] [--target devin|codex|all]"
 - Codex の hooks は初回に `/hooks` でレビュー・信頼が必要。プロジェクトの `.codex/` は信頼済みの場合のみ読み込まれる。
 - `.codex/config.toml` に、生成するテーブルと重複する定義があるとエラーになり、`config.toml` は更新されない。出力に従って手書きの定義を整理する。
 - `Bash(cat .env*)` のような glob は、同期時点で存在するファイルに展開される。新しい秘密情報ファイルを足したら再同期する。
-- リポジトリ固有のルールで変換しない deny は、`AGENTS.md` などにそのコマンド(`--skip-deny` 付き)ごと書いておく。次回以降もエージェントが同じ指定で同期できる。
+- リポジトリ固有のルールで変換しない deny は、Devin 向けは `.devin/global_rules.md`、それ以外は `AGENTS.md` などに、そのコマンド(`--skip-deny` 付き)ごと書いておく。次回以降もエージェントが同じ指定で同期できる。
 - CI で同期漏れを検知するには、`--skip-deny` も含めて同じ引数で `python3 -I <sync.py> --check` を実行する(例: `references/ci-example.yml`)。
