@@ -663,6 +663,9 @@ def main() -> int:
     if not (root / ".claude").is_dir():
         print(f"{root}/.claude が見つかりません", file=sys.stderr)
         return 2
+    if args.quick and args.check:
+        print("--quick と --check は併用できません(生成物を比較しないため、ずれを見逃します)", file=sys.stderr)
+        return 2
     if args.quick:
         changed, reason = sources_changed(root)
         print(reason)

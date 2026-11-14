@@ -18,11 +18,13 @@ PRの変更が画面にどう影響するかを、レビュアーが一目で確
 ### 1. 対象PRと比較元を決める
 
 - PR番号またはブランチが指定されていなければ、現在のブランチのPRを`gh pr view --json number,baseRefName,headRefName,url`で調べる。無ければユーザーに聞く。
-- before = PRのベースブランチ（通常は`baseRefName`）、after = PRのブランチ。
+- 比較元（before）は、PRのベースブランチ（`baseRefName`）の**先端ではなく、PRのブランチとのmerge-base**にする。ベースが進んでいると、PRと無関係なUI変更がbeforeに混ざるため。
+  1. `git fetch origin <baseRefName>`、`gh pr checkout <PR番号>`でPRのブランチを取得する（forkからのPRでも動く。ローカルのbase/headは古い・無いことがある）。
+  2. `git merge-base origin/<baseRefName> HEAD`で得たコミットを`<base>`とする。afterはPRのブランチ（`HEAD`）。
 
 ### 2. 影響する画面を推定する
 
-1. `git diff --name-only <base>...<head>`で変更ファイルを一覧する。
+1. `git diff --name-only <base>...HEAD`で変更ファイルを一覧する。
 2. UI以外（ロジック・テスト・CI・ドキュメントのみ）の変更で、見た目に影響しないと判断できれば、**その旨をユーザーに伝えて終了する**。無理に撮らない。
 3. UIに関わる変更ファイル（画面・ウィジェット/ビュー・レイアウト・テーマ・文言/リソース・画像）から、**影響する画面を最大5つ程度の候補**に絞る。共通部品やテーマの変更は影響範囲が広いので、代表的な画面に絞る。
 4. 候補と、各画面に到達する操作手順（タップ順・必要な状態）を**ユーザーに提示して確認する**。到達手順が分からない画面は推測せず聞く。確認が済むまで撮影に進まない。
@@ -36,9 +38,9 @@ PRの変更が画面にどう影響するかを、レビュアーが一目で確
 - 保存先は`.gitignore`済みのディレクトリ（例: `work/pr-evidence/<PR番号>/`）。無ければユーザーに確認する。ファイル名は`<画面名>_before.png` / `<画面名>_after.png`。
 
 手順:
-1. `git switch <base>`（またはworktree）→ ビルド・インストール・起動 → 各画面へ到達してスクリーンショットを`*_before.png`として保存。
-2. `git switch <head>` → 同様に`*_after.png`を保存。
-3. 元のブランチに戻す。
+1. `git switch --detach <base>`（またはworktree。`<base>`は手順1のmerge-baseコミット）→ ビルド・インストール・起動 → 各画面へ到達してスクリーンショットを`*_before.png`として保存。
+2. `git switch -`でPRのブランチへ戻る → 同様に`*_after.png`を保存。
+3. 作業前のブランチ（`gh pr checkout`する前のもの）に戻す。
 
 ベース側にその画面が存在しない（新規画面）場合、`before`は「なし（新規）」とする。
 

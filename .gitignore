@@ -2,3 +2,6 @@ CLAUDE.local.md
 .claude/settings.local.json
 .DS_Store
 __pycache__/
+
+# sync-devin-codex が生成する Codex 用の出力
+.codex/

@@ -48,10 +48,10 @@ nohup "$ANDROID_HOME/emulator/emulator" -avd <AVD名> > "$TMPDIR/emulator.log" 2
 disown
 ```
 
-起動待ちは`run_in_background`付きBashで行い、完了通知を待つ（sleepループを直接待たない）。
+起動待ちは`run_in_background`付きBashで行い、完了通知を待つ（sleepループを直接待たない）。待ちの上限は約5分。シリアルは`emulator -avd`で起動した場合の通常値`emulator-5554`で、違う場合は`adb devices`で確認して置き換える。
 
 ```bash
-until adb shell getprop sys.boot_completed 2>/dev/null | grep -q 1; do sleep 2; done
+for _ in $(seq 1 150); do adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | grep -q 1 && break; sleep 2; done
 ```
 
 `adb devices`の一行目に`emulator-5554`のようなシリアルが出る。複数デバイス（実機や別エミュレータ）が同時に接続されていると、`-s`を省いたコマンドは「more than one device/emulator」で失敗するか、意図しないデバイスに実行される。**以降のコマンドは必ず`adb -s <シリアル>`で対象を明示する。**

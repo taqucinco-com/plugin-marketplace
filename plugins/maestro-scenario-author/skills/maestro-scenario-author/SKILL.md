@@ -10,13 +10,13 @@ description: ユーザーと対話しながら、Maestro のE2Eシナリオ（fl
 ## 前提
 
 - `maestro`が使えること（`command -v maestro`）。無ければ https://docs.maestro.dev/getting-started/installing-maestro を案内して、導入するか確認する。勝手にインストールしない。MaestroはJava 17以上が必要。
-- このプラグインは`.mcp.json`でMaestro MCPサーバー（`maestro mcp --no-viewer`）を登録する。**Claude Codeでプラグインを有効化した後、MCPサーバーを認識させるために再起動（または`/mcp`で確認）が必要。** Codex・Devinではこの`.mcp.json`は使われないので、CLI（`maestro hierarchy`/`maestro test`）で進める。
+- このプラグインは`.mcp.json`でMaestro MCPサーバー（`maestro mcp --no-viewer`）を登録する。**Claude Codeでプラグインを有効化した後、MCPサーバーを認識させるために再起動（または`/mcp`で確認）が必要。** Codexは`.codex-plugin/plugin.json`の`mcpServers`、Devinはプラグイン直下の`.mcp.json`で同じサーバーを読む。MCPツールが見当たらないときはCLI（`maestro hierarchy`/`maestro test`）で進める。
 - エミュレータ/シミュレータが起動していて、対象アプリがインストール済みであること。起動やインストールは`android-emulator-operate`/`ios-simulator-operate`があればそれに従う。
 - Bashツールのサンドボックス内では`simctl`/`adb`/Maestroがデバイスと通信できないことがある。その場合は`dangerouslyDisableSandbox: true`で実行する（アプリ側の異常ではない）。
 
 ## 使うMCPツール（Maestro 2.10.0で確認。バージョンで増減・改名する）
 
-ツール名は`mcp__maestro__<名前>`として現れる。ツールが見当たらなければ、`ToolSearch`で`maestro`を検索して読み込む。
+ツール名はプラグイン同梱のMCPなので`mcp__plugin_maestro-scenario-author_maestro__<名前>`として現れる（以下の表は`<名前>`部分）。ツールが見当たらなければ、`ToolSearch`で`maestro`を検索して読み込む。
 
 | ツール | 用途 |
 |---|---|

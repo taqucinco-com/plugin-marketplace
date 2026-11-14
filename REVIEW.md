@@ -8,6 +8,7 @@
 - `plugin.json` 以外(skills/agents/commands/hooks)が `.claude-plugin/` の中に置かれていない
 - 新規プラグインが `.claude-plugin/marketplace.json` と `.agents/plugins/marketplace.json` の両方に登録され、`.devin-plugin/plugin.json`(リンク)と `.codex-plugin/plugin.json` がある
 - `.codex-plugin/plugin.json` の `name`・`version` が `.claude-plugin/plugin.json` と一致している
+- `.mcp.json` を持つプラグインは、`.codex-plugin/plugin.json` に `"mcpServers": "./.mcp.json"` がある
 - `claude plugin validate .` がエラーなしで通る(CI でも確認)
 
 ## プラグイン内容

@@ -116,7 +116,7 @@ jobs:
         run: |
           ADB="$ANDROID_HOME/platform-tools/adb"
           "$ADB" -s emulator-5554 install -r "$(ls apk/*.apk | head -n 1)"
-          if "$ADB" -s emulator-5554 shell pm list packages | tr -d '\r' | grep -qx "package:$APP_ID"; then
+          if "$ADB" -s emulator-5554 shell pm list packages | tr -d '\r' | grep -Fqx "package:$APP_ID"; then
             echo "インストール済みであることを確認した: $APP_ID"
           else
             echo "appIdのアプリが端末に見つからない: $APP_ID" >&2
@@ -147,7 +147,10 @@ jobs:
       - name: Start screen recording
         run: |
           mkdir -p "$ARTIFACT_DIR"
-          nohup "$ANDROID_HOME/platform-tools/adb" -s emulator-5554 shell screenrecord /data/local/tmp/maestro-recording.mp4 > /tmp/screenrecord.log 2>&1 &
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          # screenrecordは1本180秒で止まるため、停止フラグが立つまで180秒ごとに区切って録り続ける
+          "$ADB" -s emulator-5554 shell 'rm -f /data/local/tmp/rec_stop /data/local/tmp/maestro-recording-*.mp4'
+          nohup "$ADB" -s emulator-5554 shell 'i=0; while [ ! -f /data/local/tmp/rec_stop ]; do screenrecord --time-limit 180 /data/local/tmp/maestro-recording-$i.mp4; i=$((i+1)); done' > /tmp/screenrecord.log 2>&1 &
           disown
 
       - name: Run maestro flow
@@ -163,9 +166,17 @@ jobs:
       - name: Stop screen recording
         if: always()
         run: |
-          "$ANDROID_HOME/platform-tools/adb" -s emulator-5554 shell pkill -SIGINT screenrecord || true
-          sleep 1
-          "$ANDROID_HOME/platform-tools/adb" -s emulator-5554 pull /data/local/tmp/maestro-recording.mp4 "$ARTIFACT_DIR/maestro-recording.mp4" || true
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          "$ADB" -s emulator-5554 shell touch /data/local/tmp/rec_stop || true
+          "$ADB" -s emulator-5554 shell pkill -SIGINT screenrecord || true
+          # mp4が書き終わる（screenrecordが終了する）のを最大15秒待ってからpullする
+          for _ in $(seq 1 15); do
+            "$ADB" -s emulator-5554 shell pidof screenrecord > /dev/null 2>&1 || break
+            sleep 1
+          done
+          for f in $("$ADB" -s emulator-5554 shell 'ls /data/local/tmp/maestro-recording-*.mp4' 2>/dev/null | tr -d '\r'); do
+            "$ADB" -s emulator-5554 pull "$f" "$ARTIFACT_DIR/$(basename "$f")" || true
+          done
 
       - name: Upload maestro artifacts
         if: always()

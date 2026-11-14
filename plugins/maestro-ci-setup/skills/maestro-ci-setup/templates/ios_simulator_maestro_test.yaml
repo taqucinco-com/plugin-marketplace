@@ -23,11 +23,15 @@ jobs:
           echo "__TODO: build the simulator .app" >&2
           exit 1
 
+      # upload-artifactはzipで固めるため実行ビットが失われる。tarに固めて権限を保つ。
+      - name: Pack simulator app
+        run: tar -cf App.tar -C "$(dirname __TODO_APP_PATH__)" "$(basename __TODO_APP_PATH__)"   # 例: __TODO_APP_PATH__ = build/Build/Products/Debug-iphonesimulator/App.app
+
       - name: Upload simulator app artifact
         uses: actions/upload-artifact@v4
         with:
           name: ios-simulator-app
-          path: __TODO_APP_PATH__   # 例: build/Build/Products/Debug-iphonesimulator/App.app
+          path: App.tar
           retention-days: 1
 
   run-maestro:
@@ -52,7 +56,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ios-simulator-app
-          path: App.app
+
+      - name: Unpack simulator app
+        run: |
+          # tar内のバンドル名がApp.app以外でもApp.appとして扱えるよう、展開後にリネームする
+          mkdir app-unpacked
+          tar -xf App.tar -C app-unpacked
+          mv app-unpacked/*.app App.app
 
       # ランナーイメージの更新でXcode/ランタイムは変わるため、固定せず利用可能なものから選ぶ。
       # 新規作成デバイスの初回起動はData Migrationに数分かかるが`simctl boot`自体は即座に返る。
