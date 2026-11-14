@@ -25,5 +25,7 @@ Claude Code のプラグインマーケットプレイス用リポジトリ。
 ## Codex 対応
 - 各プラグインは `.codex-plugin/plugin.json`(実ファイル。`skills` に `./skills/` を指定)を持つ。`name`・`version` は `.claude-plugin/plugin.json` と一致させる
 - プラグイン追加時は `.agents/plugins/marketplace.json` にも登録する(`source` は `{"source": "local", "path": "./plugins/<name>"}`)
+- Codex プラグインの構成(`.mcp.json`・`.codex-plugin/plugin.json` など)は OpenAI の公式ドキュメント(https://developers.openai.com/plugins/build/plugins#plugin-creator-output)を参照する。プラグイン直下の `.mcp.json` は Codex 互換の形式で、ポータブル形式の `mcp.json` とは別物なのでリネームだけで流用しない
 - スキル本文では `${CLAUDE_PLUGIN_ROOT}` に頼らず、SKILL.md からの相対パスで資材を参照する
+- MCP サーバーはプラグイン直下の `.mcp.json`(`mcpServers`)に宣言する。書き方は Devin の公式ドキュメント(https://docs.devin.ai/product-guides/plugin-mcp-setups#the-declaration)を参照する
 - `devin plugins install/list/info` はログイン(`devin auth login`)が必須で、未認証では動かない。Devin のプラグイン検証は CI に入れず、手元で `devin plugins install --local ./plugins/<name>` を実行して確認する
