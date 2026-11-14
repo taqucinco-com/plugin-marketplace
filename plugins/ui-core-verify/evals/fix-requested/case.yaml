@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: fix-requested
+description: 依頼が修正を求めている(「直して」)とき、mismatch に対してコードを修正する(報告のみに倒れすぎないことの確認)
+tags: [ui-verify, report-only]
+context:
+  scaffold_script: fixture.sh

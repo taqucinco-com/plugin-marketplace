@@ -5,3 +5,5 @@ __pycache__/
 
 # sync-devin-codex が生成する Codex 用の出力
 .codex/
+
+.env

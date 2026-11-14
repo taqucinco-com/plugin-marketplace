@@ -83,6 +83,58 @@ appId: com.example.app
 - assertNotVisible: "エラー"
 ```
 
+### 3.5. ステップ後の進行確認を、Decision AIに任せる（任意。条件を満たすときだけ）
+
+手順3で1〜2コマンドを実行するたびに、**目視確認のために`take_screenshot`の画像を自分で読んでいる**なら、その部分をOpenAI Decisions APIの判定に置き換えて速くできる。**次の条件がすべてそろったときだけ**使い、そろわなければ飛ばして従来どおり進める。
+
+1. 環境変数`DECISION_AI`が`1`（`true`/`on`/`yes`も可）。利用者がプロジェクトの`settings.json`の`env`で有効にする。
+2. 環境変数`OPENAI_API_KEY`が設定されている。キーはリポジトリの外に置くもので、このスキルは値を扱わない。
+3. 画面をファイルに保存する手段がある。`take_screenshot`は保存先を指定できないので使えない。`android-emulator-operate` / `ios-simulator-operate`の手順（`adb exec-out screencap -p` / `xcrun simctl io <UDID> screenshot`）に従って、保存する。これらのプラグインが無ければ、この手順は使わない。
+
+**使える範囲は限られる。**
+- `inspect_screen`は、次に押す要素を決めるために必要なので省かない。省けるのは、目視確認のための`take_screenshot`だけ。
+- **flowが通ったかの最終判断（手順4の、最初から最後まで通す実行）には使わない。** それは`maestro`の実行結果が唯一の正解。
+- 要素の選択（セレクタの決定）にも使わない。
+- 画像を読む回数が少ない短いシナリオでは、効果がほとんどない。
+
+#### APIキーの確認方法（厳守。キーが会話・ログ・学習に流れないようにする）
+
+存在確認は、次のコマンド**だけ**で行う。値には一切触れず、結果は終了コードと固定の文言で返る。`SCRIPTS`は、このSKILL.mdがあるディレクトリの`scripts/`を絶対パスにしたもの（スキルの読み込み時に示されるベースディレクトリで解決する）。
+
+```bash
+python3 -I "$SCRIPTS/decide.py" --check; echo "exit=$?"
+```
+
+| exit | 意味 | 対応 |
+|---|---|---|
+| 0 | 使える | 下の判定へ進む |
+| 10 | `DECISION_AI`が無効 | 何も言わずこの手順を飛ばす（異常ではない） |
+| 3 | 有効だがキー未設定 | ユーザーに伝え、使わずに進めてよいか確認する。設定方法は案内してよいが、**値は聞かない・貼らせない** |
+
+**やってはいけないこと**: `env`・`printenv`・`export -p`・`set`・`declare -p`の実行、`echo "$OPENAI_API_KEY"`、キーの一部の表示、`.env`・`.envrc`・`~/.zshrc`・`settings*.json`を読んでキーを探すこと、`set -x`、キーをコマンドライン引数に渡すこと、キーの値・長さ・一部を返答やファイルに書くこと。`decide.py`が失敗したときは、リクエスト本文を出して原因を探らず、終了コードと1行のメッセージだけで判断する。
+
+#### 判定の手順
+
+1. 画面を保存し、標準サイズに正規化する。保存先は**リポジトリの外**（`$TMPDIR`）にする。`simctl`/`adb`がサンドボックスで動かない場合は、前提に書いたとおり`dangerouslyDisableSandbox: true`で実行する。
+
+   ```bash
+   bash "$SCRIPTS/normalize-image.sh" "$TMPDIR/step.png" "$TMPDIR/step-norm.png"
+   ```
+
+2. 判定する。`$SKILL_DIR`はこのSKILL.mdがあるディレクトリ。`--element`には、**このステップで到達しているはずの画面や状態**を、画面だけを見て「ある/ない」が答えられる形で書く（例: 「見出し『設定』が画面の上部に表示されているか」）。**画像のラベルは、質問文が参照している`現在の画面`のままにする。**
+
+   ```bash
+   python3 -I "$SCRIPTS/decide.py" --profile maestro-step \
+     --questions "$SKILL_DIR/decision/step-questions.json" \
+     --element '見出し「設定」が画面の上部に表示されているか' \
+     --image '現在の画面='"$TMPDIR/step-norm.png"
+   ```
+
+3. **`summary.next`だけで分岐する**（確率を自分で読んで決めない）。
+   - `proceed`: 目的の画面で、権限ダイアログなどの妨げも無い。`take_screenshot`の目視確認を省いて、次のステップへ進む。
+   - `inspect`: それ以外（`summary.reason`: 曖昧、妨げる表示がある、評価できない画面、回答拒否など）。従来どおり、`inspect_screen`と`take_screenshot`で自分で確かめる。`decide.py`が0以外で終了した場合も同じ。
+4. 画像がOpenAIに送られる。個人情報・秘密情報が写る画面（ログイン後の個人データなど）では使わない。サンドボックスで`api.openai.com`に通信できない（終了コード4）場合は、許可を依頼するか、使わずに進める。
+
 ### 4. 仕上げ
 
 - `maestro check-syntax <flow>`で構文を確認し、最終的にflowファイルを`run`（`files`）または`maestro test`で**最初から最後まで通して**成功を確認する。途中まで確かめた状態で完了とは言わない。

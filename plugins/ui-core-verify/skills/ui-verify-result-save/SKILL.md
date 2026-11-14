@@ -20,7 +20,7 @@ description: `ui-checker`agentによる画面比較結果を、人間が読むMa
 - `implementation_image`: `<name>-app.png`（正規化前の元画像。`ui-checker`に渡した正規化画像は`<name>-app-norm.png`）
 - `compare_size`: `ui-checker`に渡した標準サイズ（`{"width": 480, "height": 1040}`）
 - `loop_iterations`: ループの最終イテレーションカウンタ値
-- `loop_verdict`: 呼び出し元がこのループの最終結果として判定した値。`pass`（`mismatch`が0件で正常終了） / `retry_limit_reached`（`mismatch`が残ったままイテレーション上限=10に到達） / `fatal`（`ui-checker`が`fatal: true`を返しエスカレーション）のいずれか。**`ui-checker`自体はこの値を返さない**（`fatal`/`fatal_reason`以外は呼び出し元が組み立てる）。
+- `loop_verdict`: 呼び出し元がこのループの最終結果として判定した値。`pass`（`mismatch`が0件で正常終了） / `retry_limit_reached`（`mismatch`が残ったままイテレーション上限=10に到達） / `fatal`（`ui-checker`が`fatal: true`を返しエスカレーション）/ `report_only`（依頼が確認・調査だけで修正を求めておらず、`mismatch`が残ったままコードを変更せずに報告して終了）のいずれか。**`ui-checker`自体はこの値を返さない**（`fatal`/`fatal_reason`以外は呼び出し元が組み立てる）。
 
 これを人間が読むMarkdownと、後で複数回分をスクリプト集計できるJSONの両方に、同じ内容で書き出す。ファイル名は画面名を揃え、拡張子だけ変える（`<name>-compare.md` / `<name>-compare.json`）。
 
@@ -47,7 +47,7 @@ description: `ui-checker`agentによる画面比較結果を、人間が読むMa
 ```markdown
 # <画面名> UI検証結果
 
-- 結果（loop_verdict）: <pass / retry_limit_reached / fatal>
+- 結果（loop_verdict）: <pass / retry_limit_reached / fatal / report_only>
 - 比較対象: <Figma node-id <id> / 依頼文の期待（Figmaなし）>
 - 比較日時: <date>
 - リファレンス: `<name>-figma.png`（Figmaなしの場合は「なし」） / 実装: `<name>-app.png`
