@@ -41,6 +41,7 @@
 sh plugins/ui-core-verify/skills/ui-verify-loop/reference/check-example-ok.sh   # 要素がそろった画面 → next=ui_checker / reason=all_present
 sh plugins/ui-core-verify/skills/ui-verify-loop/reference/check-example-ng.sh   # Switch が欠けた画面 → next=fix / reason=missing
 sh plugins/ui-core-verify/skills/ui-verify-loop/reference/curl-example-ok.sh    # OK の画面を curl で送る(API の生のレスポンスを見る)
+sh plugins/ui-core-verify/skills/ui-verify-loop/reference/check-profiles.sh       # pr-ui-evidence の変更判定と maestro-scenario-author のステップ確認(4回呼ぶ。全部 PASS で終了コード 0)
 ```
 
 - `check-example-*.sh` は、判定が期待と違うと終了コード 1 で終わる。`--raw` を付けると、API の生のレスポンスが標準エラーに出る。
