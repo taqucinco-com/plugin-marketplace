@@ -23,7 +23,9 @@ jobs:
         run: npm install -g @anthropic-ai/claude-code
 
       - name: Run plugin tests
-        run: python3 -m unittest discover -s plugins/sync-devin-codex/tests -v
+        run: |
+          python3 -m unittest discover -s plugins/sync-devin-codex/tests -v
+          python3 -m unittest discover -s plugins/ui-core-verify/tests -v
 
       - name: Validate marketplace and plugins
         run: |

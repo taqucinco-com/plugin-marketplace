@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: routing-android
+description: Android エミュレータでの UI 確認の依頼で ui-android-emu-verify が選ばれる
+tags: [ui-verify, routing]
+context:
+  scaffold_script: fixture.sh

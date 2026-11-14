@@ -15,6 +15,66 @@
         "authentication": "ON_INSTALL"
       },
       "category": "Productivity"
+    },
+    {
+      "name": "ios-simulator-operate",
+      "source": {
+        "source": "local",
+        "path": "./plugins/ios-simulator-operate"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    },
+    {
+      "name": "android-emulator-operate",
+      "source": {
+        "source": "local",
+        "path": "./plugins/android-emulator-operate"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    },
+    {
+      "name": "ui-core-verify",
+      "source": {
+        "source": "local",
+        "path": "./plugins/ui-core-verify"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    },
+    {
+      "name": "ui-android-emu-verify",
+      "source": {
+        "source": "local",
+        "path": "./plugins/ui-android-emu-verify"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    },
+    {
+      "name": "ui-ios-sim-verify",
+      "source": {
+        "source": "local",
+        "path": "./plugins/ui-ios-sim-verify"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
     }
   ]
 }
