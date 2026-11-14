@@ -35,7 +35,7 @@
 
 ### Codex
 
-- `config.toml`: `[permissions.project.filesystem.":workspace_roots"]` に変換する。`Read` のパスは `"glob" = "deny"`(読み取りも書き込みも拒否)、`Edit`・`Write` だけのパスは `"glob" = "read"`(読み取り専用)にする。同じパスに両方あれば `deny` を優先する。先頭の `./` と `**/` を外した形と、`**/` 付きの形を併記する(`**/` 付きの glob はワークスペース直下のファイルに一致しない可能性があるため)。`~` で始まるパスと絶対パスは表現できないため、警告してスキップする。`default_permissions = "project"` も設定する。
+- `config.toml`: `[permissions.project.filesystem.":workspace_roots"]` に変換する。`Read`・`Edit`・`Write` のパスはいずれも `"glob" = "deny"` にする。Codex のファイル権限は読み取りと書き込みを分けられず、`deny` は両方を拒否する。先頭の `./` と `**/` を外した形と、`**/` 付きの形を併記する(`**/` 付きの glob はワークスペース直下のファイルに一致しない可能性があるため)。`~` で始まるパスと絶対パスは表現できないため、警告してスキップする。`default_permissions = "project"` も設定する。
 - `config.toml` は、`# >>> sync-devin-codex (名前) >>>` で囲んだ区間(`permissions`、`permissions-tables`、`mcp-servers`)だけを管理し、既存の区間はその位置で置き換える。区間の外に、生成するテーブルや `default_permissions` と同じ定義があると、TOML が重複して Codex が設定を読めなくなるため、エラーにして `config.toml` を更新しない。
 - `sandbox_mode` と併用できない。`config.toml` に `sandbox_mode` があると `default_permissions` は無視されるため、警告する。
 - `.codex/rules/deny.rules`: `Bash(...)` のルールを Starlark の `prefix_rule(..., decision = "forbidden")` に変換する。`pattern` は引数列の完全なトークン単位の前方一致で、`*` を使えないため落とす。`match` と `not_match` の例を付ける(読み込み時に検証される)。ファイル読み取りコマンドの glob は、列挙したファイル名の選択肢(`./` 付きの形も含む)にする。

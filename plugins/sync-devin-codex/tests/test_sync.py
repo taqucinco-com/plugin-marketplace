@@ -140,13 +140,14 @@ class FrontmatterAndAgents(Base):
 
 
 class CodexFilesystem(Base):
-    def test_edit_only_is_read_only_and_read_is_deny(self):  # 指摘5
+    def test_read_edit_write_are_all_deny(self):  # 指摘5
         self.r.settings(["Read(./.env)", "Edit(./.env)", "Edit(src/generated/**)", "Write(~/x)"])
         _, out, _ = self.r.sync()
         cfg = self.r.read(".codex/config.toml")
         self.assertIn('".env" = "deny"', cfg)
-        self.assertIn('"src/generated/**" = "read"', cfg)
-        self.assertIn('"**/src/generated/**" = "read"', cfg)
+        self.assertIn('"src/generated/**" = "deny"', cfg)
+        self.assertIn('"**/src/generated/**" = "deny"', cfg)
+        self.assertNotIn('"read"', cfg)
         self.assertNotIn("~", cfg)
         self.assertIn("~ や絶対パス", out)
 
@@ -162,6 +163,19 @@ class GlobSnapshot(Base):
         self.assertEqual(self.r.sync(check=True)[0], 1)  # --check が新しい秘密ファイルを検知する
         self.r.sync()
         self.assertIn(".env.production", self.r.read(".codex/rules/deny.rules"))
+
+
+class WorktreeSkip(Base):
+    def test_files_in_linked_worktrees_are_not_expanded(self):
+        self.r.write(".env", "")
+        self.r.write(".env.sample", "")
+        self.r.write("wt/.git", "gitdir: ../.git/worktrees/wt\n")
+        self.r.write("wt/.env.sample", "")
+        self.r.settings(["Bash(cat .env*)", "Bash(cat **/.env*)"])
+        self.r.sync()
+        rules = self.r.read(".codex/rules/deny.rules")
+        self.assertIn(".env.sample", rules)
+        self.assertNotIn("wt/", rules)
 
 
 class CodexConfigToml(Base):

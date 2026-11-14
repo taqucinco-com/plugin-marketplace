@@ -264,7 +264,8 @@ def find_files(root: Path, pattern: str) -> list[str]:
     found: list[str] = []
     if pattern.startswith("**/") and "/" not in pattern[3:]:
         for cur, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+            dirs[:] = [d for d in dirs
+                       if d not in SKIP_DIRS and not (Path(cur) / d / ".git").is_file()]
             found += [str((Path(cur) / f).relative_to(root).as_posix())
                       for f in files if fnmatch.fnmatch(f, pattern[3:])]
     else:
@@ -343,7 +344,7 @@ def plan_devin_permissions(p: Plan, rules, specs) -> None:
 
 
 def plan_codex_permissions(p: Plan, rules, specs) -> tuple[str, str]:
-    """config.toml の (top, tables) 断片を返す。Edit/Writeだけのルールは読み取り専用("read")にする。"""
+    """config.toml の (top, tables) 断片を返す。Read・Edit・Writeのいずれも"deny"にする。"""
     fs: dict[str, str] = {}
     for tool, arg in rules:
         if tool not in {"Read", "Edit", "Write"}:
@@ -353,10 +354,8 @@ def plan_codex_permissions(p: Plan, rules, specs) -> tuple[str, str]:
             continue
         base = arg[2:] if arg.startswith("./") else arg
         base = base[3:] if base.startswith("**/") else base
-        mode = "deny" if tool == "Read" else "read"
         for key in (base, "**/" + base):
-            if fs.get(key) != "deny":  # 読み取りの拒否が優先
-                fs[key] = mode
+            fs[key] = "deny"  # Codexのファイル権限は読み取りと書き込みを分けられない
     top, tables = "", ""
     if fs:
         top = 'default_permissions = "project"'
