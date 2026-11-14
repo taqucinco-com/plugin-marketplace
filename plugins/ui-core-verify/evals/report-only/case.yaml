@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: report-only
+description: 依頼が確認・調査だけ(「調査して」)のとき、mismatch が出てもコードを変更せず、報告して修正してよいかを確認する
+tags: [ui-verify, report-only]
+context:
+  scaffold_script: fixture.sh

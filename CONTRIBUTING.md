@@ -19,7 +19,7 @@ python3 -m unittest discover -s plugins/ui-core-verify/tests -v
 ### 各プラグインの evals
 
 ```
-claude plugin eval plugins/ui-core-verify --trust-plugin --scaffold --allow-tools Write --runs 1 --ablation none --no-publish
+claude plugin eval plugins/ui-core-verify --trust-plugin --scaffold --allow-tools Write Edit --runs 1 --ablation none --no-publish
 claude plugin eval plugins/ios-simulator-operate --trust-plugin --scaffold --runs 1 --ablation none --no-publish
 claude plugin eval plugins/android-emulator-operate --trust-plugin --scaffold --runs 1 --ablation none --no-publish
 ```
