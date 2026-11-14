@@ -16,6 +16,7 @@ Claude Code のプラグインマーケットプレイス用リポジトリ。
 ## レビュー
 - レビュー観点は `REVIEW.md` を参照
 - CI(`.github/workflows/validate.yml`)で `claude plugin validate` が実行される
+- evals は CI では実行せず、ローカルだけで実行する。実行コマンドは `CONTRIBUTING.md` を参照
 
 ## Devin 対応
 - 各プラグインは `.devin-plugin/plugin.json` を `.claude-plugin/plugin.json` へのシンボリックリンクとして持つ。プラグイン追加時はリンクも作る(`ln -s ../.claude-plugin/plugin.json plugins/<name>/.devin-plugin/plugin.json`)

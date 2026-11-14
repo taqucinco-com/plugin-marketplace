@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: skip-linked-worktree
+description: cat .env* の glob 展開で、linked worktree 内のファイルが deny.rules に入らない
+tags: [codex, permissions]
+context:
+  scaffold_script: fixture.sh
