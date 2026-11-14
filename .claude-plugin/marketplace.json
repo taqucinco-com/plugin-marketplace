@@ -1,0 +1,21 @@
+{
+  "name": "plugin-marketplace",
+  "description": "Claude Code plugin marketplace",
+  "owner": {
+    "name": "taqucinco"
+  },
+  "plugins": [
+    {
+      "name": "sync-devin-codex",
+      "source": "./plugins/sync-devin-codex",
+      "description": "Claude Code の .claude/ 設定(skills・agents・rules・permissions・MCP)を Devin と Codex 用に変換・同期する",
+      "category": "productivity",
+      "tags": [
+        "devin",
+        "codex",
+        "claude-code",
+        "sync"
+      ]
+    }
+  ]
+}

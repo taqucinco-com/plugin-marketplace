@@ -1,0 +1,20 @@
+# 対象リポジトリの .github/workflows/ に置く例。`.claude/` の変更に対する Devin・Codex 側の同期漏れを検知する。
+# <PLUGIN_DIR> は、このプラグインのスクリプトがあるパスに置き換える(例: マーケットプレイスを checkout したパス)。
+name: Check Devin/Codex sync
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  sync-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: <owner>/plugin-marketplace
+          path: .plugin-marketplace
+      - run: python3 -I .plugin-marketplace/plugins/sync-devin-codex/scripts/sync.py --check
