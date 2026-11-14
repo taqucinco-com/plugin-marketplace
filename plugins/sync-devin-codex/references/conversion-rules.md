@@ -65,6 +65,7 @@
 - `.claude/settings.ci.json` など CI 専用の設定と、それが参照する hooks。
 
 ## 同期の動作
+- `--quick`: デフォルトブランチ(`git ls-remote --symref origin HEAD` で決め、`origin` から fetch して最新にする)との共通の祖先から、同期元(`.claude/`・`.mcp.json`・`AGENTS.md`・`CLAUDE.md`・`.devin/global_rules.md`。未コミット・未追跡を含む)に差分が無ければ何もせず終了する。判断できないとき(リモート無し・fetch 失敗など)は通常どおり同期する。生成物の手編集によるずれは検知しない。
 - 生成物が `.claude/` から消えた場合の古いリンクは、入力ディレクトリごと消えたときも含めて削除する。`.codex/agents/` に対応する md が無い `.toml` は、報告だけして削除しない。
 - `--check` は、内容の差分に加えて、フックの実行ビットの欠落も差分として報告する。
 - `settings.json` の `hooks`(Devin は直接読む。Codex へは変換しない)。

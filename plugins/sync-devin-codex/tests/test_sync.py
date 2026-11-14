@@ -313,5 +313,92 @@ class RulesHookScript(Base):
         self.assertNotIn("適用対象パス:", out)
 
 
+class QuickMode(unittest.TestCase):
+    """--quick: デフォルトブランチを fetch して比較し、同期元に変更が無ければ省略する。"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        base = Path(self._tmp.name)
+        self.origin, self.work = base / "origin.git", base / "work"
+        self.git("init", "-q", "--bare", "-b", "main", str(self.origin), cwd=base)
+        self.git("clone", "-q", str(self.origin), str(self.work), cwd=base)
+        self.git("config", "user.email", "t@example.com")
+        self.git("config", "user.name", "t")
+        self.write(".claude/skills/a/SKILL.md", "---\nname: a\ndescription: d\n---\n")
+        self.commit("init")
+        self.git("push", "-q", "-u", "origin", "HEAD:main")
+        self.git("switch", "-q", "-c", "feat")
+
+    def git(self, *args, cwd=None):
+        r = subprocess.run(["git", *args], cwd=cwd or self.work, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def write(self, rel, text):
+        p = self.work / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text)
+
+    def commit(self, msg):
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", msg)
+
+    def quick(self):
+        return sync.sources_changed(self.work)
+
+    def test_no_change_is_skipped(self):
+        self.write("src/app.py", "x")  # 同期元ではない
+        self.commit("code")
+        changed, reason = self.quick()
+        self.assertFalse(changed)
+        self.assertIn("省略", reason)
+
+    def test_committed_source_change_is_detected(self):
+        self.write(".claude/rules/r.md", "rule")
+        self.commit("rule")
+        changed, reason = self.quick()
+        self.assertTrue(changed)
+        self.assertIn(".claude/rules/r.md", reason)
+
+    def test_uncommitted_and_untracked_changes_are_detected(self):
+        self.write("AGENTS.md", "x")  # 未追跡
+        self.assertTrue(self.quick()[0])
+        self.git("add", "-A")  # ステージ済み
+        self.assertTrue(self.quick()[0])
+        self.commit("agents")
+        self.write(".claude/skills/a/SKILL.md", "---\nname: a\ndescription: e\n---\n")  # 追跡済みの未コミット変更
+        self.assertTrue(self.quick()[0])
+
+    def test_stale_remote_ref_is_refreshed_by_fetch(self):
+        # origin/main が .claude を変更し、feat がそれを取り込んだ後、ローカルの origin/main だけが古い状態
+        old = self.git("rev-parse", "origin/main").strip()
+        other = Path(self._tmp.name) / "other"
+        self.git("clone", "-q", str(self.origin), str(other), cwd=self._tmp.name)
+        (other / ".claude" / "rules").mkdir(parents=True)
+        (other / ".claude" / "rules" / "r.md").write_text("rule")
+        for cmd in (["config", "user.email", "t@example.com"], ["config", "user.name", "t"],
+                    ["add", "-A"], ["commit", "-q", "-m", "rule"], ["push", "-q", "origin", "HEAD:main"]):
+            subprocess.run(["git", *cmd], cwd=other, check=True, capture_output=True)
+        self.git("fetch", "-q", "origin")
+        self.git("merge", "-q", "origin/main")
+        self.git("update-ref", "refs/remotes/origin/main", old)  # 古い状態に戻す
+        changed, _ = self.quick()
+        self.assertFalse(changed)  # fetch で最新になり、取り込み済みなので差分なし
+
+    def test_no_remote_falls_back_to_full_sync(self):
+        self.git("remote", "remove", "origin")
+        changed, reason = self.quick()
+        self.assertTrue(changed)
+        self.assertIn("通常どおり", reason)
+
+    def test_fetch_failure_falls_back_to_full_sync(self):
+        self.git("remote", "set-url", "origin", str(self.origin) + ".missing")
+        self.git("update-ref", "-d", "refs/remotes/origin/HEAD")
+        changed, reason = self.quick()
+        self.assertTrue(changed)
+        self.assertIn("通常どおり", reason)
+
+
 if __name__ == "__main__":
     unittest.main()
