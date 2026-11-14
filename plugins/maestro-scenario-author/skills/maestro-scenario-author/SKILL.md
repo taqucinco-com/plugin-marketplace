@@ -1,6 +1,6 @@
 ---
 name: maestro-scenario-author
-description: ユーザーと対話しながら、Maestro のE2Eシナリオ（flow YAML）を作成・検証する。実機画面の要素（`maestro hierarchy`）を確認しつつ1ステップずつ組み立て、`maestro test`で通ることを確かめる。「Maestroのシナリオを作って」「E2Eテストを書きたい」「このフローをMaestroにして」「Maestroのflowを直して」といった依頼で使う。CIへの組み込みは`maestro-ci-setup`を使う。
+description: ユーザーと対話しながら、Maestro のE2Eシナリオ（flow YAML）を作成・検証する。Maestro MCP（`inspect_screen`・`run`）で実機画面の要素を確認しつつ1ステップずつ組み立て、通ることを確かめる（MCPが使えなければCLIで同じことをする）。「Maestroのシナリオを作って」「E2Eテストを書きたい」「このフローをMaestroにして」「Maestroのflowを直して」といった依頼で使う。CIへの組み込みは`maestro-ci-setup`を使う。
 ---
 
 # Maestro シナリオ作成（対話式）
@@ -10,10 +10,32 @@ description: ユーザーと対話しながら、Maestro のE2Eシナリオ（fl
 ## 前提
 
 - `maestro`が使えること（`command -v maestro`）。無ければ https://docs.maestro.dev/getting-started/installing-maestro を案内して、導入するか確認する。勝手にインストールしない。MaestroはJava 17以上が必要。
-- エミュレータ/シミュレータが起動していて、対象アプリがインストール済みであること。起動やインストールは`android-emulator-operate`/`ios-simulator-operate`があればそれに従う。`maestro list-devices`で認識されているか確認する。
+- このプラグインは`.mcp.json`でMaestro MCPサーバー（`maestro mcp --no-viewer`）を登録する。**Claude Codeでプラグインを有効化した後、MCPサーバーを認識させるために再起動（または`/mcp`で確認）が必要。** Codex・Devinではこの`.mcp.json`は使われないので、CLI（`maestro hierarchy`/`maestro test`）で進める。
+- エミュレータ/シミュレータが起動していて、対象アプリがインストール済みであること。起動やインストールは`android-emulator-operate`/`ios-simulator-operate`があればそれに従う。
 - Bashツールのサンドボックス内では`simctl`/`adb`/Maestroがデバイスと通信できないことがある。その場合は`dangerouslyDisableSandbox: true`で実行する（アプリ側の異常ではない）。
 
-## 手順
+## 使うMCPツール（Maestro 2.10.0で確認。バージョンで増減・改名する）
+
+ツール名は`mcp__maestro__<名前>`として現れる。ツールが見当たらなければ、`ToolSearch`で`maestro`を検索して読み込む。
+
+| ツール | 用途 |
+|---|---|
+| `list_devices` | 接続中のデバイスとIDを調べる（以降の`device_id`に使う） |
+| `inspect_screen` | 現在画面の要素ツリー。**セレクタは必ずここの値から決める** |
+| `run` | `yaml`（インライン）/`files`/`dir`でMaestroコマンドやflowを実行する。探索・デバッグ中はインラインYAMLで1〜2コマンドずつ |
+| `take_screenshot` | 画面の目視確認。保存先は指定できない |
+| `cheat_sheet` | コマンドと書き方の一覧（失敗するときは下の注意を参照） |
+
+`list_cloud_devices`・`run_on_cloud`などのクラウド系ツールはMaestro Cloudのアカウント用で、このスキルでは使わない。**ユーザーが明示しない限り、flowやアプリをクラウドへ送信しない。**
+
+### MCPの落とし穴
+
+- `inspect_screen`の要素キーは省略形（`txt`=text、`rid`=resource-id、`a11y`=accessibilityText）で、**そのままセレクタには使えない**。`tapOn`等で使えるのは`text`・`id`・`index`・位置指定（`below`/`above`/`leftOf`/`rightOf`）。`a11y`の値は`text:`に入れる。
+- `text:`は**全文一致の正規表現（大文字小文字は無視）**。部分文字列では一致しない。文字列は`txt`の値を**コピーする**。スクリーンショットを見て文言を推測して書かない（アイコンが「お気に入り」に見えても、テキストは無いことがある）。
+- ボタンが`tap_on`相当で押せない場合、アプリ側にラベルを付けられないかを相談する（FlutterならSemantics、ネイティブならaccessibilityIdentifier/contentDescription）。付けられないなら座標指定はやむを得ないが、最後の手段。
+- スクリーンショットの保存先・画面録画・スワイプの専用ツールは無い。保存・録画は`xcrun simctl io`/`adb`で行い、スワイプは`run`のYAML（`swipe`・`scrollUntilVisible`）で書く。
+- `cheat_sheet`などドキュメント系が`MAESTRO_CLOUD_API_KEY`関連のエラーで失敗することがある。その場合は無理に使わず、下のよく使うコマンドと https://docs.maestro.dev を参照する。APIキーをユーザーに要求・取得しない。
+- 同じ失敗（構文エラー、要素の誤認）が別セッションで繰り返されがち。詰まった内容と解決策を、プロジェクトの既存ガイド（AGENTS.md/CLAUDE.mdやE2Eのドキュメント）に追記することをユーザーに提案する。勝手に書き込まない。
 
 ### 1. 何を確認するシナリオかを聞く（作る前に決める）
 
@@ -25,6 +47,8 @@ description: ユーザーと対話しながら、Maestro のE2Eシナリオ（fl
 - 既存のflowの置き場所と命名（例: `test/e2e/maestro/android/`・`ios/`）。既存flowがあれば**先に読んで**、命名・コメントの言語・書き方を合わせる
 
 ### 2. 画面の要素を見る
+
+MCPが使えるなら`list_devices`でIDを調べ、`inspect_screen`で取得する。使えないときはCLI。
 
 ```bash
 maestro hierarchy                  # 接続中のデバイスの要素ツリー（JSON）
@@ -38,7 +62,7 @@ maestro --udid <ID> hierarchy      # 複数デバイスがあるとき
 ### 3. 1ステップずつ足して実行する
 
 1. 先頭に`appId`とヘッダ(`---`)を書いたflowを作る。
-2. 次の1〜2コマンドを足し、**その都度`maestro test <flow>`で実行**して通ることを確認する。失敗したら、直前に足した分だけを疑う。
+2. 次の1〜2コマンドを足し、**その都度実行**して通ることを確認する。MCPなら`run`（まずインラインの`yaml`で試し、通ったらflowファイルへ書き写す。最後はファイルを`files`で実行する）、CLIなら`maestro test <flow>`。失敗したら、直前に足した分だけを疑う。
 3. 画面遷移や非同期読み込みの後は、`assertVisible`で「到達できた」ことを確かめてから次へ進む。固定の`sleep`ではなく`waitForAnimationToEnd`や`assertVisible`（タイムアウト付きで待つ）を使う。
 4. ユーザーに、今できているところまでの動作を報告して、次に何を確認したいか聞く。
 
@@ -61,7 +85,7 @@ appId: com.example.app
 
 ### 4. 仕上げ
 
-- `maestro check-syntax <flow>`で構文を確認し、最終的に`maestro test`で**最初から最後まで通して**成功を確認する。途中まで確かめた状態で完了とは言わない。
+- `maestro check-syntax <flow>`で構文を確認し、最終的にflowファイルを`run`（`files`）または`maestro test`で**最初から最後まで通して**成功を確認する。途中まで確かめた状態で完了とは言わない。
 - Android/iOSで画面が同じなら、`appId`以外はなるべく同じ内容にする。差分はコメントで理由を書く。
 - 不安定さ（実行のたびに成功・失敗が変わる）が疑われるなら、同じflowを2〜3回連続で実行して確認する。
 - 書いたflowについて、何を確認しているか・開始状態・実行コマンドを、ユーザーに短く説明する。CIで流す場合は`maestro-ci-setup`を案内する。
