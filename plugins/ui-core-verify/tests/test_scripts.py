@@ -16,6 +16,8 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parent.parent / "skills" / "ui-verify-loop" / "scripts"
 NORMALIZE = SCRIPTS / "normalize-image.sh"
 SCALE = SCRIPTS / "scale-structure.py"
+DECIDE = SCRIPTS / "decide.py"
+QUESTIONS = SCRIPTS.parent / "decision" / "base-questions.json"
 
 
 def write_png(path, width, height, rgb=(200, 120, 60)):
@@ -244,6 +246,228 @@ class ScaleStructure(TmpCase):
         src.write_text("[]", encoding="utf-8")
         r = run_scale(src, self.dir / "o.json", "--src", "1x1", "--dst", "2-2")
         self.assertNotEqual(r.returncode, 0)
+
+
+SENTINEL = "sk-test-SENTINEL-must-never-be-printed"
+
+
+def load_decide():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("decide", DECIDE)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def run_decide(env_extra, *args):
+    """親の環境変数を引き継がず、指定した変数だけで decide.py を実行する(実キーを使わない)。"""
+    env = {"PATH": "/usr/bin:/bin", **env_extra}
+    return subprocess.run([sys.executable, "-I", str(DECIDE), *map(str, args)], capture_output=True, text=True, env=env)
+
+
+class DecideGate(TmpCase):
+    def test_disabled_when_flag_missing_even_if_key_exists(self):
+        r = run_decide({"OPENAI_API_KEY": SENTINEL}, "--check")
+        self.assertEqual(r.returncode, 10)
+
+    def test_disabled_when_flag_is_off_value(self):
+        r = run_decide({"DECISION_AI": "0", "OPENAI_API_KEY": SENTINEL}, "--check")
+        self.assertEqual(r.returncode, 10)
+
+    def test_enabled_without_key_exits_3(self):
+        r = run_decide({"DECISION_AI": "1"}, "--check")
+        self.assertEqual(r.returncode, 3)
+
+    def test_blank_key_counts_as_missing(self):
+        r = run_decide({"DECISION_AI": "1", "OPENAI_API_KEY": "   "}, "--check")
+        self.assertEqual(r.returncode, 3)
+
+    def test_enabled_with_key_exits_0(self):
+        r = run_decide({"DECISION_AI": "on", "OPENAI_API_KEY": SENTINEL}, "--check")
+        self.assertEqual(r.returncode, 0)
+
+    def test_check_never_prints_the_key(self):
+        for env in ({}, {"DECISION_AI": "1"}, {"DECISION_AI": "1", "OPENAI_API_KEY": SENTINEL}, {"OPENAI_API_KEY": SENTINEL}):
+            r = run_decide(env, "--check")
+            self.assertNotIn(SENTINEL, r.stdout + r.stderr)
+
+    def test_disabled_call_does_not_touch_network_or_files(self):
+        r = run_decide({"OPENAI_API_KEY": SENTINEL}, "--questions", self.dir / "none.json")
+        self.assertEqual(r.returncode, 10)
+        self.assertNotIn(SENTINEL, r.stdout + r.stderr)
+
+
+class DecideRequest(TmpCase):
+    def test_question_template_is_valid(self):
+        qs = json.loads(QUESTIONS.read_text(encoding="utf-8"))
+        names = [q["name"] for q in qs]
+        self.assertEqual(names, ["screen_not_usable"])
+        self.assertEqual(qs[0]["type"], "predicate")
+
+    def test_element_questions_are_numbered_predicates(self):
+        d = load_decide()
+        qs = d.element_questions(["見出しがあるか", " Switchがあるか "])
+        self.assertEqual([q["name"] for q in qs], ["expect_01", "expect_02"])
+        self.assertTrue(all(q["type"] == "predicate" for q in qs))
+        self.assertEqual(qs[1]["instructions"], "Switchがあるか")
+
+    def test_build_request_orders_shared_input_and_embeds_image(self):
+        d = load_decide()
+        body = d.build_request([{"type": "predicate", "name": "q", "instructions": "x"}], [("期待", "本文")], [("画像", "image/png", "QUJD")])
+        self.assertEqual(body["model"], "gpt-6-luna")
+        parts = body["input"][0]["content"]
+        self.assertEqual([p["type"] for p in parts], ["input_text", "input_text", "input_image"])
+        self.assertTrue(parts[2]["image_url"].startswith("data:image/png;base64,"))
+
+    def test_simplify_handles_each_type_and_refusal(self):
+        d = load_decide()
+        out = d.simplify(
+            {
+                "answers": [
+                    {"type": "predicate", "name": "a", "probability": 0.9},
+                    {"type": "choice", "name": "b", "choice": "match", "confidence": 0.8, "probabilities": []},
+                    {"type": "refusal", "name": "c"},
+                ],
+                "usage": {"input_tokens": 1},
+            }
+        )
+        self.assertEqual(out["answers"][0]["value"], 0.9)
+        self.assertEqual(out["answers"][1]["value"], "match")
+        self.assertEqual(out["answers"][2], {"name": "c", "type": "refusal"})
+        self.assertEqual(out["summary"]["next"], "ui_checker")
+        with self.assertRaises(ValueError):
+            d.simplify({"answers": None})
+
+    def answers(self, **probs):
+        return {"answers": [{"type": "predicate", "name": n, "probability": p} for n, p in probs.items()]}
+
+    def test_summary_fix_when_an_element_is_clearly_missing(self):
+        d = load_decide()
+        out = d.simplify(self.answers(screen_not_usable=0.0, expect_01=1.0, expect_02=0.05))
+        self.assertEqual(
+            out["summary"], {"next": "fix", "reason": "missing", "missing": ["expect_02"], "missing_visual": [], "uncertain": []}
+        )
+        self.assertEqual(out["answers"][2]["verdict"], "missing")
+
+    def test_summary_ui_checker_when_all_present_or_uncertain(self):
+        d = load_decide()
+        present = d.simplify(self.answers(screen_not_usable=0.0, expect_01=1.0, expect_02=0.8))
+        self.assertEqual(present["summary"]["next"], "ui_checker")
+        self.assertEqual(present["summary"]["reason"], "all_present")
+        uncertain = d.simplify(self.answers(screen_not_usable=0.0, expect_01=1.0, expect_02=0.5))
+        self.assertEqual(uncertain["summary"]["reason"], "uncertain")
+        self.assertEqual(uncertain["summary"]["uncertain"], ["expect_02"])
+
+    def test_summary_missing_boundary_and_unusable_screen(self):
+        d = load_decide()
+        self.assertEqual(d.simplify(self.answers(expect_01=0.2))["summary"]["next"], "fix")
+        self.assertEqual(d.simplify(self.answers(expect_01=0.21))["summary"]["next"], "ui_checker")
+        # 画面が評価できないなら、要素が欠けて見えても修正に進まない
+        out = d.simplify(self.answers(screen_not_usable=0.5, expect_01=0.0))
+        self.assertEqual(out["summary"]["next"], "ui_checker")
+        self.assertEqual(out["summary"]["reason"], "screen_not_usable")
+
+    def test_summary_visual_only_missing_goes_to_ui_checker(self):
+        d = load_decide()
+        out = d.simplify(self.answers(screen_not_usable=0.0, expect_01=1.0, expect_v01=0.0))
+        self.assertEqual(out["summary"]["next"], "ui_checker")
+        self.assertEqual(out["summary"]["reason"], "missing_visual")
+        self.assertEqual(out["summary"]["missing_visual"], ["expect_v01"])
+        self.assertEqual(out["summary"]["missing"], [])
+
+    def test_summary_text_missing_wins_over_visual_missing(self):
+        d = load_decide()
+        out = d.simplify(self.answers(expect_01=0.0, expect_v01=0.0))
+        self.assertEqual(out["summary"]["next"], "fix")
+        self.assertEqual(out["summary"]["missing"], ["expect_01"])
+        self.assertEqual(out["summary"]["missing_visual"], ["expect_v01"])
+
+    def test_visual_questions_use_separate_numbering(self):
+        d = load_decide()
+        qs = d.element_questions(["a"], ["b", "c"])
+        self.assertEqual([q["name"] for q in qs], ["expect_01", "expect_v01", "expect_v02"])
+
+    def test_raw_prints_response_to_stderr_without_key_or_request(self):
+        import io
+        from unittest import mock
+
+        d = load_decide()
+        tdir = self.dir
+        (tdir / "t.txt").write_text("画面の期待テキスト", encoding="utf-8")
+        write_png(tdir / "i.png", 4, 4)
+        fake = {"model": "m", "answers": [{"type": "predicate", "name": "expect_01", "probability": 1.0}], "usage": {"input_tokens": 1}}
+        argv = ["decide.py", "--element", "あるか", "--text", f"期待={tdir / 't.txt'}", "--image", f"画像={tdir / 'i.png'}", "--raw"]
+        out, err = io.StringIO(), io.StringIO()
+        env = {"DECISION_AI": "1", "OPENAI_API_KEY": SENTINEL}
+        with mock.patch.object(sys, "argv", argv), mock.patch.dict(d.os.environ, env, clear=True), mock.patch.object(
+            d, "call_api", return_value=fake
+        ), mock.patch.object(sys, "stdout", out), mock.patch.object(sys, "stderr", err):
+            d.main()
+        self.assertEqual(json.loads(err.getvalue()), fake)
+        self.assertEqual(json.loads(out.getvalue())["summary"]["next"], "ui_checker")
+        for text in (out.getvalue(), err.getvalue()):
+            self.assertNotIn(SENTINEL, text)
+            self.assertNotIn("画面の期待テキスト", text)
+
+    def test_summary_ui_checker_without_elements(self):
+        d = load_decide()
+        self.assertEqual(d.simplify(self.answers(screen_not_usable=0.0))["summary"]["reason"], "no_elements")
+
+    def test_summary_ui_checker_on_refusal(self):
+        d = load_decide()
+        resp = {"answers": [{"type": "predicate", "name": "expect_01", "probability": 0.0}, {"type": "refusal", "name": "expect_02"}]}
+        self.assertEqual(d.simplify(resp)["summary"]["reason"], "refusal")
+
+    def test_instructions_are_echoed_for_answers(self):
+        d = load_decide()
+        out = d.simplify(self.answers(expect_01=1.0), [{"name": "expect_01", "instructions": "見出しがあるか"}])
+        self.assertEqual(out["answers"][0]["instructions"], "見出しがあるか")
+
+    def test_http_error_prints_status_only(self):
+        import io
+        import urllib.error
+        from unittest import mock
+
+        d = load_decide()
+        err = urllib.error.HTTPError(d.ENDPOINT, 401, "Unauthorized", {}, io.BytesIO(("body " + SENTINEL).encode()))
+        stderr = io.StringIO()
+        with mock.patch.object(d.urllib.request, "urlopen", side_effect=err), mock.patch.object(sys, "stderr", stderr):
+            with self.assertRaises(SystemExit) as cm:
+                d.call_api({}, SENTINEL)
+        self.assertEqual(cm.exception.code, 5)
+        self.assertIn("401", stderr.getvalue())
+        self.assertNotIn(SENTINEL, stderr.getvalue())
+
+    def test_network_error_exits_4_without_key(self):
+        import io
+        import urllib.error
+        from unittest import mock
+
+        d = load_decide()
+        stderr = io.StringIO()
+        with mock.patch.object(d.urllib.request, "urlopen", side_effect=urllib.error.URLError(SENTINEL)), mock.patch.object(sys, "stderr", stderr):
+            with self.assertRaises(SystemExit) as cm:
+                d.call_api({}, SENTINEL)
+        self.assertEqual(cm.exception.code, 4)
+        self.assertNotIn(SENTINEL, stderr.getvalue())
+
+    def test_authorization_header_uses_key_only_in_header(self):
+        import io
+        from unittest import mock
+
+        d = load_decide()
+        seen = {}
+
+        def fake_urlopen(req, timeout):
+            seen["auth"] = req.get_header("Authorization")
+            seen["url"] = req.full_url
+            return io.BytesIO(b'{"answers": []}')
+
+        with mock.patch.object(d.urllib.request, "urlopen", side_effect=fake_urlopen):
+            d.call_api({"x": 1}, "k")
+        self.assertEqual(seen["auth"], "Bearer k")
+        self.assertEqual(seen["url"], "https://api.openai.com/v1/decisions")
 
 
 if __name__ == "__main__":
