@@ -7,9 +7,9 @@
 - skills: `.devin/skills/<name>` と `.agents/skills/<name>` に `.claude/skills/<name>` へのシンボリックリンクを置く。Devin は `.claude/skills/` も読むが、Codex は `.agents/skills/` だけを検索する。
 - agents(Devin): `.devin/agents/<name>.md` に `.claude/agents/<name>.md` へのシンボリックリンクを置く。Devin の subagents は `.devin/agents/` を検索対象とし `.claude/agents/` は対象に含まれない。
 - agents(Codex): `.codex/agents/<name>.toml` に変換する。Codex は 1 ファイル 1 エージェントの TOML を要求する。
-  1. frontmatter の `name`・`description` をそのまま使う。ファイル名は `<name>.toml`。
+  1. frontmatter の `name`・`description` を使う。引用符、`>`・`|` の複数行、CRLF に対応する。ファイル名は `<name>.toml`。`name` は `[A-Za-z0-9][A-Za-z0-9._-]*` に限り、`..` を含むものや、他のエージェントと重複するものは警告してスキップする。
   2. 本文を `developer_instructions` に TOML のリテラル複数行文字列(`'''`)で入れる。本文に `'''` が含まれる場合は `"""` に切り替えてエスケープする。
-  3. `tools` が `Read`・`Grep`・`Glob` のみの場合、本文末尾に読み取り専用の注記を追加する。Codex のカスタムエージェントは `sandbox_mode` 等をファイルで上書きできず、読み取り専用の制限は指示文でしか表現できない。それ以外の `tools` は変換先が無いため捨てる。
+  3. `tools`(カンマ区切り、`[a, b]`、`- a` のリストのいずれも可)が `Read`・`Grep`・`Glob` のみの場合、本文末尾に読み取り専用の注記を追加する。Codex のカスタムエージェントは `sandbox_mode` 等をファイルで上書きできず、読み取り専用の制限は指示文でしか表現できない。それ以外の `tools` は変換先が無いため捨てる。
   4. `model` 等の任意キーは設定しない。
 
 ## rules
@@ -28,18 +28,20 @@
 
 - `Read(glob)` はそのまま `Read(glob)`。
 - `Edit(glob)`・`Write(glob)` は `Write(glob)` に統合し、重複を除く(Devin に `Edit` 相当が無い)。
-- `Bash(cmd *)` は `Exec(cmd)`。`Exec` は単語単位の前方一致で glob を使えないため、末尾の `*` を落とす。`--force*` のようにトークン末尾に付いた `*` も落とす。
-- `Bash(cat .env*)` のように、ファイル読み取りコマンド(`cat`・`less`・`more`・`head`・`tail`・`bat`)の引数に glob を含むルールは、リポジトリ内で一致する実在ファイルを列挙して `Exec(cat .env)`、`Exec(cat .env.local)` のような完全一致に置き換える。一致するファイルが無い glob は警告して捨てる。新しい秘密情報ファイルを追加したらスキルを再実行する。
+- `Bash(cmd *)` は `Exec(cmd)`。`Exec` は単語単位の前方一致で glob を使えないため、末尾の `*` を落とす。`--force*` のようにトークン末尾に付いた `*` も落とす。旧形式の `Bash(cmd:*)` は `Bash(cmd *)` として扱う。
+- `Bash(cat .env*)` のように、ファイル読み取りコマンド(`cat`・`less`・`more`・`head`・`tail`・`bat`)の引数に glob を含むルールは、リポジトリ内で一致する実在ファイルを列挙して `Exec(cat .env)`、`Exec(cat .env.local)` のような完全一致に置き換える。一致するファイルが無い glob は警告して捨てる。この展開は同期時点のスナップショットなので、新しい秘密情報ファイルを追加したらスキルを再実行する。CI で `--check` を実行すると、同期漏れを検知できる(`references/ci-example.yml`)。主な防御はパスのルール(`Read`、Codex の filesystem)で、この展開は補助。対象は上記の読み取りコマンドだけで、`grep`・`cp` などは対象外。
 - 上記以外で glob が残るルールは警告してスキップする。
-- `settings.json` の他のキーを書き換えない。`.devin/config.json` の `permissions.deny` だけを置き換える。
+- `settings.json` の他のキーを書き換えない。`.devin/config.json` の `permissions.deny` のうち、生成した項目だけを管理する。生成した項目の一覧は `.devin/.sync-devin-codex.json` に記録し、手で追加した項目は残す。`.claude/` 側のルールをすべて消すと、生成した項目だけが取り除かれる。
 
 ### Codex
 
-- `config.toml`: `Read`・`Edit`・`Write` のパスを `[permissions.project.filesystem.":workspace_roots"]` に `"glob" = "deny"` として統合する(Codex は読み取りも書き込みも拒否し、操作ごとに分けられない)。先頭の `./` と `**/` を外した形と、`**/` 付きの形を併記する(`**/` 付きの glob はワークスペース直下のファイルに一致しない可能性があるため)。`default_permissions = "project"` も設定する。
+- `config.toml`: `[permissions.project.filesystem.":workspace_roots"]` に変換する。`Read` のパスは `"glob" = "deny"`(読み取りも書き込みも拒否)、`Edit`・`Write` だけのパスは `"glob" = "read"`(読み取り専用)にする。同じパスに両方あれば `deny` を優先する。先頭の `./` と `**/` を外した形と、`**/` 付きの形を併記する(`**/` 付きの glob はワークスペース直下のファイルに一致しない可能性があるため)。`~` で始まるパスと絶対パスは表現できないため、警告してスキップする。`default_permissions = "project"` も設定する。
+- `config.toml` は、`# >>> sync-devin-codex (名前) >>>` で囲んだ区間(`permissions`、`permissions-tables`、`mcp-servers`)だけを管理し、既存の区間はその位置で置き換える。区間の外に、生成するテーブルや `default_permissions` と同じ定義があると、TOML が重複して Codex が設定を読めなくなるため、エラーにして `config.toml` を更新しない。
 - `sandbox_mode` と併用できない。`config.toml` に `sandbox_mode` があると `default_permissions` は無視されるため、警告する。
 - `.codex/rules/deny.rules`: `Bash(...)` のルールを Starlark の `prefix_rule(..., decision = "forbidden")` に変換する。`pattern` は引数列の完全なトークン単位の前方一致で、`*` を使えないため落とす。`match` と `not_match` の例を付ける(読み込み時に検証される)。ファイル読み取りコマンドの glob は、列挙したファイル名の選択肢(`./` 付きの形も含む)にする。
 - 位置を指定しない一致は表現できない(例: `git push origin feature --force` は一致しない)。元の Claude 側のルールも同じ挙動。
 - 複数のルールに一致した場合は `forbidden` > `prompt` > `allow` の順で最も厳しい決定が適用される。
+- `.claude/` 側に `Bash` のルールが無くなると、生成した `deny.rules`(先頭の注記で判別)は削除する。
 - 確認: `codex execpolicy check --pretty --rules .codex/rules/deny.rules -- <コマンド>`。シェルのラッパー(`bash -lc`)は分割されないため、実行時とは異なる。変更後は Codex を再起動する。rules は実験的機能で、プロジェクトの `.codex/` が信頼済みの場合のみ読み込まれる。
 
 ## MCP(`.mcp.json`)
@@ -60,4 +62,8 @@
 ## 変換しないもの
 
 - `.claude/settings.ci.json` など CI 専用の設定と、それが参照する hooks。
+
+## 同期の動作
+- 生成物が `.claude/` から消えた場合の古いリンクは、入力ディレクトリごと消えたときも含めて削除する。`.codex/agents/` に対応する md が無い `.toml` は、報告だけして削除しない。
+- `--check` は、内容の差分に加えて、フックの実行ビットの欠落も差分として報告する。
 - `settings.json` の `hooks`(Devin は直接読む。Codex へは変換しない)。

@@ -21,6 +21,9 @@ jobs:
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
 
+      - name: Run plugin tests
+        run: python3 -m unittest discover -s plugins/sync-devin-codex/tests -v
+
       - name: Validate marketplace and plugins
         run: |
           claude plugin validate .

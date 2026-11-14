@@ -42,4 +42,6 @@ argument-hint: "[--check] [--target devin|codex|all]"
 - `.codex/config.toml` は、`# >>> sync-devin-codex` で囲んだ区間だけを管理する。区間の外に書いた設定は残る。区間内を手で編集しない。
 - 同名の実ファイルがある場所にはリンクを作らず、報告だけする。
 - Codex の hooks は初回に `/hooks` でレビュー・信頼が必要。プロジェクトの `.codex/` は信頼済みの場合のみ読み込まれる。
-- CI で同期漏れを検知するには、`python3 -I <sync.py> --check` を実行する。
+- `.codex/config.toml` に、生成するテーブルと重複する定義があるとエラーになり、`config.toml` は更新されない。出力に従って手書きの定義を整理する。
+- `Bash(cat .env*)` のような glob は、同期時点で存在するファイルに展開される。新しい秘密情報ファイルを足したら再同期する。
+- CI で同期漏れを検知するには、`python3 -I <sync.py> --check` を実行する(例: `references/ci-example.yml`)。

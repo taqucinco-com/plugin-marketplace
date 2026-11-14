@@ -35,6 +35,9 @@ SKIP_DIRS = {".git", "node_modules", "build", ".dart_tool", "Pods", ".venv", "ve
 HOOK_CMD = 'bash "$(git rev-parse --show-toplevel)/.codex/hooks/load-claude-rules.sh"'
 BEGIN = "# >>> sync-devin-codex ({name}) >>>"
 END = "# <<< sync-devin-codex ({name}) <<<"
+AGENT_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+DENY_RULES_HEADER = "# sync-devin-codex が .claude/settings.json の permissions.deny から生成した。手で編集しない。"
+DEVIN_STATE = ".devin/.sync-devin-codex.json"  # Devin の deny のうち、このスクリプトが生成した項目
 
 
 class Plan:
@@ -44,6 +47,10 @@ class Plan:
         self.links: dict[str, str] = {}
         self.link_dirs: set[str] = set()
         self.warnings: list[str] = []
+        self.errors: list[str] = []
+        self.deletes: list[str] = []  # 生成物のうち、不要になったもの
+        self.codex_agents = False  # .codex/agents/ を管理対象にするか
+        self.snapshot_warned = False
 
     def file(self, rel: str, content: str, executable: bool = False) -> None:
         self.files[rel] = (content, executable)
@@ -61,15 +68,56 @@ class Plan:
 
 # ---------- 共通 ----------
 
+def _unquote(v: str) -> str:
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        if v[0] == '"':
+            try:
+                return json.loads(v)
+            except ValueError:
+                return v[1:-1]
+        return v[1:-1].replace("''", "'")
+    return v
+
+
 def parse_frontmatter(md: str) -> tuple[dict, str]:
-    m = re.match(r"---\n(.*?)\n---\n(.*)\Z", md, re.S)
+    """簡易YAMLパーサー。引用符、`[a, b]`・`- a` 形式のリスト、`>`・`|` の複数行、CRLFに対応する。"""
+    md = md.replace("\r\n", "\n").replace("\r", "\n").lstrip("﻿")
+    m = re.match(r"---[ \t]*\n(.*?)\n---[ \t]*(?:\n(.*))?\Z", md, re.S)
     if not m:
         raise ValueError("frontmatterがありません")
-    meta = {}
-    for line in m.group(1).split("\n"):
-        key, _, value = line.partition(":")
-        meta[key.strip()] = value.strip()
-    return meta, m.group(2).strip("\n")
+    lines = m.group(1).split("\n")
+    meta: dict = {}
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        if not line.strip() or line.lstrip().startswith("#") or line[0] in " \t":
+            continue
+        key, sep, value = line.partition(":")
+        if not sep:
+            continue
+        key, value = key.strip(), value.strip()
+        cont: list[str] = []
+        while i < len(lines) and (not lines[i].strip() or lines[i][0] in " \t" or lines[i].startswith("- ")):
+            cont.append(lines[i].strip())
+            i += 1
+        cont = [c for c in cont if c]
+        if re.fullmatch(r"[>|][+-]?", value):
+            meta[key] = ("\n" if value[0] == "|" else " ").join(cont)
+        elif value == "" and cont and all(c.startswith("- ") for c in cont):
+            meta[key] = [_unquote(c[2:]) for c in cont]
+        elif value.startswith("[") and value.endswith("]"):
+            meta[key] = [_unquote(x) for x in value[1:-1].split(",") if x.strip()]
+        else:
+            meta[key] = _unquote(" ".join([value] + cont))
+    return meta, (m.group(2) or "").strip("\n")
+
+
+def as_list(v) -> list[str]:
+    if isinstance(v, list):
+        return [str(x).strip() for x in v if str(x).strip()]
+    return [t.strip() for t in str(v or "").split(",") if t.strip()]
 
 
 def toml_key(name: str) -> str:
@@ -88,12 +136,20 @@ def toml_multiline(body: str) -> str:
 
 
 def set_block(text: str, name: str, content: str, top: bool) -> str:
-    """text 内の管理ブロックを置き換える。content が空ならブロックを削除する。"""
+    """text 内の管理ブロックを更新する。既存ブロックはその位置で置き換え、無ければ追加する。
+    content が空ならブロックを削除する。"""
     b, e = BEGIN.format(name=name), END.format(name=name)
-    text = re.sub(re.escape(b) + r".*?" + re.escape(e) + r"\n?", "", text, flags=re.S)
+    m = re.search(re.escape(b) + r".*?" + re.escape(e) + r"\n?", text, flags=re.S)
+    block = f"{b}\n{content.rstrip()}\n{e}\n" if content else ""
+    if m:
+        if content:
+            return text[:m.start()] + block + text[m.end():]
+        before, after = text[:m.start()], text[m.end():].lstrip("\n")
+        if not after:
+            return before.rstrip("\n") + "\n" if before.strip() else ""
+        return before + after
     if not content:
         return text
-    block = f"{b}\n{content.rstrip()}\n{e}\n"
     if top:
         return block + (("\n" + text.lstrip("\n")) if text.strip() else "")
     return (text.rstrip("\n") + "\n\n" if text.strip() else "") + block
@@ -106,6 +162,11 @@ def load_json(path: Path) -> dict:
 # ---------- skills / agents ----------
 
 def plan_skills(p: Plan, devin: bool, codex: bool) -> None:
+    # 入力ディレクトリが無くなっても、古いリンクを掃除できるよう先に登録する
+    if devin:
+        p.link_dirs.add(".devin/skills")
+    if codex:
+        p.link_dirs.add(".agents/skills")
     src = p.root / ".claude" / "skills"
     if not src.is_dir():
         return
@@ -115,41 +176,50 @@ def plan_skills(p: Plan, devin: bool, codex: bool) -> None:
                 p.link(f".devin/skills/{d.name}", f"../../.claude/skills/{d.name}")
             if codex:
                 p.link(f".agents/skills/{d.name}", f"../../.claude/skills/{d.name}")
-    if devin:
-        p.link_dirs.add(".devin/skills")
-    if codex:
-        p.link_dirs.add(".agents/skills")
 
 
 def convert_agent(md: str) -> tuple[str, str]:
     meta, body = parse_frontmatter(md)
-    tools = {t.strip() for t in meta.get("tools", "").split(",") if t.strip()}
+    name = meta.get("name")
+    description = meta.get("description")
+    if not isinstance(name, str) or not name or not isinstance(description, str) or not description:
+        raise ValueError("name・descriptionが必要")
+    if not AGENT_NAME_RE.fullmatch(name) or ".." in name:
+        raise ValueError(f"nameに使えない文字が含まれる: {name}")
+    tools = set(as_list(meta.get("tools")))
     if tools and tools <= READ_ONLY_TOOLS:
         body = f"{body}\n\n{READ_ONLY_NOTICE}"
     toml = (
-        f"name = {toml_str(meta['name'])}\n"
-        f"description = {toml_str(meta['description'])}\n"
+        f"name = {toml_str(name)}\n"
+        f"description = {toml_str(description)}\n"
         f"developer_instructions = {toml_multiline(body)}\n"
     )
-    return meta["name"], toml
+    return name, toml
 
 
 def plan_agents(p: Plan, devin: bool, codex: bool) -> None:
+    if devin:
+        p.link_dirs.add(".devin/agents")
+    if codex:
+        p.codex_agents = True
     src = p.root / ".claude" / "agents"
     if not src.is_dir():
         return
+    owners: dict[str, str] = {}
     for md in sorted(src.glob("*.md")):
         if devin:
             p.link(f".devin/agents/{md.name}", f"../../.claude/agents/{md.name}")
         if codex:
             try:
                 name, toml = convert_agent(md.read_text())
-            except (ValueError, KeyError) as exc:
-                p.warn(f".claude/agents/{md.name}: 変換できません（{exc}。name・descriptionが必要）")
+            except ValueError as exc:
+                p.warn(f".claude/agents/{md.name}: Codex用に変換できません（{exc}）")
                 continue
+            if name in owners:
+                p.warn(f".claude/agents/{md.name}: name `{name}` が {owners[name]} と重複しているためスキップしました")
+                continue
+            owners[name] = md.name
             p.file(f".codex/agents/{name}.toml", toml)
-    if devin:
-        p.link_dirs.add(".devin/agents")
 
 
 # ---------- rules ----------
@@ -204,6 +274,8 @@ def find_files(root: Path, pattern: str) -> list[str]:
 
 def exec_specs(p: Plan, arg: str):
     """Bash(...) のルールを ('plain', tokens) または ('reader', cmd, paths) に変換する。"""
+    if arg.endswith(":*"):  # 旧形式 `Bash(git push:*)` は `Bash(git push *)` と同じ
+        arg = arg[:-2] + " *"
     raw = arg.split()
     if not raw:
         return None
@@ -217,6 +289,10 @@ def exec_specs(p: Plan, arg: str):
         if not paths:
             p.warn(f"Bash({arg}): 一致するファイルが無いため変換結果が空です")
             return None
+        if not p.snapshot_warned:
+            p.snapshot_warned = True
+            p.warn("ファイル読み取りコマンドのglobは、同期時点で存在するファイルに展開しています。"
+                   "新しい秘密情報ファイルを追加したら再同期してください（CIで --check を実行すると検知できます）")
         return ("reader", raw[0], paths)
     tokens = raw[:]
     if tokens[-1] == "*":
@@ -227,6 +303,73 @@ def exec_specs(p: Plan, arg: str):
         p.warn(f"Bash({arg}): 表現できないglobを含むためスキップしました")
         return None
     return ("plain", tokens)
+
+
+def plan_devin_permissions(p: Plan, rules, specs) -> None:
+    """生成した項目だけを管理し、手で追加した項目は残す。ルールが空になったら生成分を取り除く。"""
+    generated: list[str] = []
+    if rules:
+        for tool, arg in rules:
+            if tool == "Read":
+                generated.append(f"Read({arg})")
+            elif tool in {"Edit", "Write"}:
+                generated.append(f"Write({arg})")
+        for _, s in specs:
+            if s[0] == "plain":
+                generated.append(f"Exec({' '.join(s[1])})")
+            else:
+                generated += [f"Exec({s[1]} {x})" for x in s[2]]
+        generated = list(dict.fromkeys(generated))
+    state_text = p.read(DEVIN_STATE)
+    previous = json.loads(state_text).get("deny", []) if state_text else []
+    if not generated and not previous:
+        return
+    config_path = p.root / ".devin" / "config.json"
+    data = load_json(config_path)
+    perms = data.setdefault("permissions", {})
+    deny = list(dict.fromkeys([x for x in perms.get("deny", []) if x not in previous] + generated))
+    if deny:
+        perms["deny"] = deny
+    else:
+        perms.pop("deny", None)
+        if not perms:
+            data.pop("permissions")
+    if data or config_path.is_file():
+        p.file(".devin/config.json", json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    if generated:
+        p.file(DEVIN_STATE, json.dumps({"deny": generated}, indent=2, ensure_ascii=False) + "\n")
+    elif state_text:
+        p.deletes.append(DEVIN_STATE)
+
+
+def plan_codex_permissions(p: Plan, rules, specs) -> tuple[str, str]:
+    """config.toml の (top, tables) 断片を返す。Edit/Writeだけのルールは読み取り専用("read")にする。"""
+    fs: dict[str, str] = {}
+    for tool, arg in rules:
+        if tool not in {"Read", "Edit", "Write"}:
+            continue
+        if arg.startswith("~") or arg.startswith("/"):
+            p.warn(f"{tool}({arg}): ~ や絶対パスはCodexのworkspace_rootsで表現できないためスキップしました")
+            continue
+        base = arg[2:] if arg.startswith("./") else arg
+        base = base[3:] if base.startswith("**/") else base
+        mode = "deny" if tool == "Read" else "read"
+        for key in (base, "**/" + base):
+            if fs.get(key) != "deny":  # 読み取りの拒否が優先
+                fs[key] = mode
+    top, tables = "", ""
+    if fs:
+        top = 'default_permissions = "project"'
+        tables = (
+            '[permissions.project]\nextends = ":workspace"\n\n'
+            '[permissions.project.filesystem.":workspace_roots"]\n'
+            + "".join(f"{toml_str(k)} = {toml_str(v)}\n" for k, v in fs.items())
+        )
+    if specs:
+        p.file(".codex/rules/deny.rules", build_deny_rules(specs))
+    elif p.read(".codex/rules/deny.rules").startswith(DENY_RULES_HEADER):
+        p.deletes.append(".codex/rules/deny.rules")
+    return top, tables
 
 
 def plan_permissions(p: Plan, devin: bool, codex: bool) -> tuple[str, str]:
@@ -240,48 +383,16 @@ def plan_permissions(p: Plan, devin: bool, codex: bool) -> tuple[str, str]:
                 specs.append((arg, s))
         elif tool not in {"Read", "Edit", "Write"}:
             p.warn(f"{tool}({arg}): 変換対象外のツールです")
-
-    if devin and rules:
-        deny: list[str] = []
-        for tool, arg in rules:
-            if tool == "Read":
-                deny.append(f"Read({arg})")
-            elif tool in {"Edit", "Write"}:
-                deny.append(f"Write({arg})")
-        for _, s in specs:
-            if s[0] == "plain":
-                deny.append(f"Exec({' '.join(s[1])})")
-            else:
-                deny += [f"Exec({s[1]} {x})" for x in s[2]]
-        deny = list(dict.fromkeys(deny))
-        data = load_json(p.root / ".devin" / "config.json")
-        data.setdefault("permissions", {})["deny"] = deny
-        p.file(".devin/config.json", json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-
-    top, tables = "", ""
-    if codex and rules:
-        paths: list[str] = []
-        for tool, arg in rules:
-            if tool in {"Read", "Edit", "Write"}:
-                base = arg[2:] if arg.startswith("./") else arg
-                base = base[3:] if base.startswith("**/") else base
-                paths += [base, "**/" + base]
-        paths = list(dict.fromkeys(paths))
-        if paths:
-            top = 'default_permissions = "project"'
-            tables = (
-                '[permissions.project]\nextends = ":workspace"\n\n'
-                '[permissions.project.filesystem.":workspace_roots"]\n'
-                + "".join(f"{toml_str(x)} = \"deny\"\n" for x in paths)
-            )
-        p.file(".codex/rules/deny.rules", build_deny_rules(specs)) if specs else None
-    return top, tables
+    if devin:
+        plan_devin_permissions(p, rules, specs)
+    return plan_codex_permissions(p, rules, specs) if codex else ("", "")
 
 
 def build_deny_rules(specs) -> str:
     out = [
-        "# sync-devin-codex が .claude/settings.json の permissions.deny から生成した。手で編集しない。",
+        DENY_RULES_HEADER,
         "# prefix_rule は引数列の前方一致で、位置を指定しない一致（引数の後ろに現れるフラグ等）は表現できない。",
+        "# ファイル読み取りコマンドのglobは、同期時点で存在するファイル名に展開している。新しい秘密情報ファイルを追加したら再同期する。",
         "",
     ]
     for arg, s in specs:
@@ -354,6 +465,36 @@ def plan_mcp(p: Plan, devin: bool, codex: bool) -> str:
 
 # ---------- 適用 ----------
 
+ANY_BLOCK_RE = re.compile(r"# >>> sync-devin-codex \(([^)]*)\) >>>.*?# <<< sync-devin-codex \(\1\) <<<\n?", re.S)
+
+
+def toml_headers(text: str) -> set[str]:
+    out = set()
+    for m in re.finditer(r"^[ \t]*\[([^\[\]\n]+)\][ \t]*(?:#.*)?$", text, re.M):
+        out.add(re.sub(r"[\s\"']", "", m.group(1)))
+    return out
+
+
+def plan_codex_config(p: Plan, top: str, tables: str, mcp_tables: str) -> None:
+    existing = p.read(".codex/config.toml")
+    outside = ANY_BLOCK_RE.sub("", existing)
+    clash = toml_headers(outside) & (toml_headers(tables) | toml_headers(mcp_tables))
+    if top and re.search(r"^[ \t]*default_permissions[ \t]*=", outside, re.M):
+        clash.add("default_permissions")
+    if clash:
+        p.errors.append(
+            ".codex/config.toml に、生成するテーブルと重複する定義があります: " + ", ".join(sorted(clash))
+            + "。手で書いた定義を削除するか、`.claude/` 側のルール・MCPを調整してください（config.toml は更新しません）")
+        return
+    if re.search(r"^\s*sandbox_mode\s*=", existing, re.M) and top:
+        p.warn(".codex/config.toml に sandbox_mode があります。default_permissions は無視されます")
+    text = set_block(existing, "permissions", top, top=True)
+    text = set_block(text, "permissions-tables", tables, top=False)
+    text = set_block(text, "mcp-servers", mcp_tables, top=False)
+    if text != existing and (text.strip() or existing):
+        p.file(".codex/config.toml", text)
+
+
 def build_plan(root: Path, targets: set[str]) -> Plan:
     p = Plan(root)
     devin, codex = "devin" in targets, "codex" in targets
@@ -363,13 +504,7 @@ def build_plan(root: Path, targets: set[str]) -> Plan:
     mcp_tables = plan_mcp(p, devin, codex)
     if codex:
         plan_rules(p)
-        existing = p.read(".codex/config.toml")
-        if re.search(r"^\s*sandbox_mode\s*=", existing, re.M) and top:
-            p.warn(".codex/config.toml に sandbox_mode があります。default_permissions は無視されます")
-        text = set_block(existing, "permissions", top, top=True)
-        text = set_block(text, "permissions-tables", "\n\n".join(x for x in [tables, mcp_tables] if x), top=False)
-        if text != existing and (text.strip() or existing):
-            p.file(".codex/config.toml", text)
+        plan_codex_config(p, top, tables, mcp_tables)
     return p
 
 
@@ -383,8 +518,16 @@ def apply(p: Plan, check: bool) -> int:
             if not check:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content)
-        if executable and not check and path.is_file():
-            path.chmod(path.stat().st_mode | 0o111)
+        if executable and path.is_file() and not path.stat().st_mode & 0o100:
+            problems.append(f"実行ビットが無い: {rel}")
+            if not check:
+                path.chmod(path.stat().st_mode | 0o111)
+    for rel in sorted(p.deletes):
+        path = root / rel
+        if path.is_file():
+            problems.append(f"不要になった生成物: {rel}")
+            if not check:
+                path.unlink()
     for rel, target in sorted(p.links.items()):
         path = root / rel
         if path.is_symlink():
@@ -412,14 +555,18 @@ def apply(p: Plan, check: bool) -> int:
                 if not check:
                     entry.unlink()
     codex_agents = root / ".codex" / "agents"
-    if codex_agents.is_dir():
+    if p.codex_agents and codex_agents.is_dir():
         for t in sorted(codex_agents.glob("*.toml")):
-            if f".codex/agents/{t.name}" not in p.files and any(k.startswith(".codex/agents/") for k in p.files):
+            if f".codex/agents/{t.name}" not in p.files:
                 problems.append(f"対応する.claude/agents/が無い（手で削除）: .codex/agents/{t.name}")
     for w in p.warnings:
         print(f"警告: {w}")
+    for e in p.errors:
+        print(f"エラー: {e}")
     for x in problems:
         print(x)
+    if p.errors:
+        return 1
     if check and problems:
         print("`python3 -I sync.py` を実行して同期してください。")
         return 1
