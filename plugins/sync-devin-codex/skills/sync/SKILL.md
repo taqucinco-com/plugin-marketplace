@@ -10,20 +10,21 @@ argument-hint: "[--check] [--target devin|codex|all]"
 
 変換スクリプトは、このファイルから見て `../../scripts/sync.py`(プラグインルートの `scripts/sync.py`)にある。以下では、その絶対パスを `<sync.py>` と書く。Claude Code では `${CLAUDE_PLUGIN_ROOT}/scripts/sync.py` と同じ。Codex・Devin ではこのファイルの場所から解決する。
 
-1. リポジトリのルートで、先に差分を確認する。
+1. リポジトリの `AGENTS.md`・`CLAUDE.md` に、Devin・Codex 向けの同期ルール(変換しない deny ルールなど)が書かれていないか読む。書かれていれば、このスキルの既定の変換よりそちらを優先する。たとえば「Devin では git push を拒否しない」とあれば、該当の deny ルールを `--skip-deny 'devin:Bash(git push *)'` で変換対象から外す(ターゲットの接頭辞を省くと両方から外れる。`--skip-deny` は繰り返し指定できる)。以降の `--check` と書き込みのコマンドには、同じ `--skip-deny` を付ける。リポジトリ側に指定が無ければ、何も付けない。
+2. リポジトリのルートで、先に差分を確認する。
 
    ```
    python3 -I <sync.py> --check $ARGUMENTS
    ```
 
-2. 出力の `警告:` を確認する。変換できなかったルール(表現できない glob、別名の環境変数参照など)が書かれている。内容を要約してユーザーに伝える。
-3. 差分があれば、`--check` を外して実行し、書き込む。
+3. 出力の `警告:` を確認する。変換できなかったルール(表現できない glob、別名の環境変数参照など)が書かれている。内容を要約してユーザーに伝える。
+4. 差分があれば、`--check` を外して実行し、書き込む。
 
    ```
    python3 -I <sync.py> $ARGUMENTS
    ```
 
-4. `git status` と `git diff` で生成物を確認し、変更内容をユーザーに報告する。コミットはユーザーが求めたときだけ行う。
+5. `git status` と `git diff` で生成物を確認し、変更内容をユーザーに報告する。コミットはユーザーが求めたときだけ行う。
 
 ## 生成されるもの
 
@@ -44,4 +45,5 @@ argument-hint: "[--check] [--target devin|codex|all]"
 - Codex の hooks は初回に `/hooks` でレビュー・信頼が必要。プロジェクトの `.codex/` は信頼済みの場合のみ読み込まれる。
 - `.codex/config.toml` に、生成するテーブルと重複する定義があるとエラーになり、`config.toml` は更新されない。出力に従って手書きの定義を整理する。
 - `Bash(cat .env*)` のような glob は、同期時点で存在するファイルに展開される。新しい秘密情報ファイルを足したら再同期する。
-- CI で同期漏れを検知するには、`python3 -I <sync.py> --check` を実行する(例: `references/ci-example.yml`)。
+- リポジトリ固有のルールで変換しない deny は、`AGENTS.md` などにそのコマンド(`--skip-deny` 付き)ごと書いておく。次回以降もエージェントが同じ指定で同期できる。
+- CI で同期漏れを検知するには、`--skip-deny` も含めて同じ引数で `python3 -I <sync.py> --check` を実行する(例: `references/ci-example.yml`)。

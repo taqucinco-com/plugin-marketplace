@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: repo-specific-rule
+description: AGENTS.md に書かれたリポジトリ固有のルール(Devin では git push を拒否しない)が、既定の変換より優先される
+tags: [devin, codex, permissions]
+context:
+  scaffold_script: fixture.sh

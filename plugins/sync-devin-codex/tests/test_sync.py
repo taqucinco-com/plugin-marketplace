@@ -38,8 +38,8 @@ class Repo:
     def settings(self, deny):
         self.write(".claude/settings.json", json.dumps({"permissions": {"deny": deny}}))
 
-    def sync(self, check=False, targets=("devin", "codex")):
-        plan = sync.build_plan(self.root, set(targets))
+    def sync(self, check=False, targets=("devin", "codex"), skip=None):
+        plan = sync.build_plan(self.root, set(targets), skip)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             code = sync.apply(plan, check)
@@ -101,6 +101,15 @@ class DevinDenyReplace(Base):
         self.r.settings(["Read(./.env)", "Exec(x)"])
         self.r.sync()
         self.assertFalse((self.r.root / ".devin/.sync-devin-codex.json").exists())
+
+
+class SkipDeny(Base):
+    def test_repo_specific_rule_is_skipped_per_target(self):
+        self.r.settings(["Bash(git push *)", "Read(./.env)"])
+        self.r.sync(skip={"devin": {"Bash(git push *)"}, "codex": set()})
+        deny = json.loads(self.r.read(".devin/config.json"))["permissions"]["deny"]
+        self.assertEqual(deny, ["Read(./.env)"])  # Devin では git push を拒否しない
+        self.assertIn('pattern = ["git", "push"]', self.r.read(".codex/rules/deny.rules"))  # Codex は従来どおり
 
 
 class FrontmatterAndAgents(Base):
