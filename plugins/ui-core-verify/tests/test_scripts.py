@@ -563,5 +563,83 @@ class DecideProfiles(unittest.TestCase):
         self.assertNotIn(SENTINEL, r.stdout + r.stderr)
 
 
+class DecideRobustness(TmpCase):
+    ENV = {"DECISION_AI": "1", "OPENAI_API_KEY": SENTINEL}
+
+    def run_with_questions(self, questions_json):
+        q = self.dir / "q.json"
+        q.write_text(questions_json, encoding="utf-8")
+        t = self.dir / "t.txt"
+        t.write_text("期待", encoding="utf-8")
+        return run_decide(self.ENV, "--questions", q, "--text", f"期待={t}")
+
+    def test_reserved_question_name_is_rejected(self):
+        r = self.run_with_questions('[{"type":"predicate","name":"expect_visible_header","instructions":"x"}]')
+        self.assertEqual(r.returncode, 2)
+        self.assertNotIn(SENTINEL, r.stdout + r.stderr)
+
+    def test_question_without_string_name_is_rejected(self):
+        self.assertEqual(self.run_with_questions('[{"type":"predicate","name":["a"],"instructions":"x"}]').returncode, 2)
+        self.assertEqual(self.run_with_questions('["not a dict"]').returncode, 2)
+
+    def run_main_with_response(self, fake_urlopen_result):
+        import io
+        from unittest import mock
+
+        d = load_decide()
+        t = self.dir / "t.txt"
+        t.write_text("期待", encoding="utf-8")
+        argv = ["decide.py", "--element", "あるか", "--text", f"期待={t}"]
+        err = io.StringIO()
+        with mock.patch.object(sys, "argv", argv), mock.patch.dict(d.os.environ, self.ENV, clear=True), mock.patch.object(
+            d.urllib.request, "urlopen", return_value=fake_urlopen_result
+        ), mock.patch.object(sys, "stderr", err), mock.patch.object(sys, "stdout", io.StringIO()):
+            with self.assertRaises(SystemExit) as cm:
+                d.main()
+        self.assertNotIn(SENTINEL, err.getvalue())
+        return cm.exception.code
+
+    def test_non_utf8_body_exits_6_not_traceback(self):
+        import io
+
+        self.assertEqual(self.run_main_with_response(io.BytesIO(b"\x80\x81\x82")), 6)
+
+    def test_answer_with_unhashable_name_exits_6_not_traceback(self):
+        import io
+
+        body = json.dumps({"answers": [{"type": "predicate", "name": ["x"], "probability": 1.0}]}).encode()
+        self.assertEqual(self.run_main_with_response(io.BytesIO(body)), 6)
+
+    def test_http_exception_is_a_network_error(self):
+        import http.client
+        from unittest import mock
+
+        d = load_decide()
+        with mock.patch.object(d.urllib.request, "urlopen", side_effect=http.client.IncompleteRead(b"")):
+            with self.assertRaises(SystemExit) as cm:
+                d.call_api({}, "k")
+        self.assertEqual(cm.exception.code, 4)
+
+
+@unittest.skipUnless(shutil.which("sips"), "sips が無い")
+class NormalizeKeepsFormatMatchingExtension(TmpCase):
+    def test_jpeg_input_to_png_output_is_really_png(self):
+        png = self.dir / "in.png"
+        write_png(png, 200, 400)
+        jpg = self.dir / "in.jpg"
+        subprocess.run(["sips", "-s", "format", "jpeg", str(png), "--out", str(jpg)], check=True, capture_output=True)
+        out = self.dir / "out.png"
+        r = subprocess.run(["bash", str(NORMALIZE), str(jpg), str(out)], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(out.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+
+    def test_unreadable_image_reports_exit_3_with_message(self):
+        bad = self.dir / "bad.png"
+        bad.write_bytes(b"not an image")
+        r = subprocess.run(["bash", str(NORMALIZE), str(bad), str(self.dir / "o.png")], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("画像", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -54,6 +54,7 @@ API キーの扱い(厳守):
 """
 import argparse
 import base64
+import http.client
 import json
 import os
 import sys
@@ -281,6 +282,12 @@ def load_questions(path):
         fail(EXIT_ARGS, f"質問ファイルを読めません: {e.__class__.__name__}")
     if not isinstance(questions, list):
         fail(EXIT_ARGS, "質問ファイルは配列にしてください")
+    for q in questions:
+        if not isinstance(q, dict) or not isinstance(q.get("name"), str) or not q["name"]:
+            fail(EXIT_ARGS, "質問には、文字列の name が必要です")
+        if q["name"].startswith(ELEMENT_PREFIX):
+            # expect_ で始まる名前は --element / --element-visual が自動で付ける。summary の判定に使うので予約している
+            fail(EXIT_ARGS, f"質問名は {ELEMENT_PREFIX} で始められません(--element 用に予約): {q['name'][:40]}")
     return questions
 
 
@@ -316,9 +323,10 @@ def call_api(body, key):
     except urllib.error.HTTPError as e:
         # 応答本文は出さない(リクエスト内容が含まれうるため)
         fail(EXIT_API, f"API エラー: HTTP {e.code}")
-    except (urllib.error.URLError, TimeoutError, OSError) as e:
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as e:
         fail(EXIT_NETWORK, f"通信できません: {e.__class__.__name__}")
-    except json.JSONDecodeError:
+    except ValueError:
+        # JSONDecodeError と UnicodeDecodeError(UTF-8 でない本文)はどちらも ValueError
         fail(EXIT_SHAPE, "応答が JSON ではありません")
 
 
@@ -356,7 +364,7 @@ def main():
         print(json.dumps(response, ensure_ascii=False, indent=2), file=sys.stderr)
     try:
         result = simplify(response, questions, args.profile)
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError, TypeError, KeyError):
         fail(EXIT_SHAPE, "応答の形が想定と違います")
     json.dump(result, sys.stdout, ensure_ascii=False)
     print()

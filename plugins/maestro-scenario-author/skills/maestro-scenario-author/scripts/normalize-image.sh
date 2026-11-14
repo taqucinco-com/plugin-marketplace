@@ -15,9 +15,15 @@ W=${BASH_REMATCH[1]}; H=${BASH_REMATCH[2]}
 mkdir -p "$(dirname "$out")"
 
 if command -v sips >/dev/null 2>&1; then
-  sw=$(sips -g pixelWidth "$in" | awk '/pixelWidth/{print $2}')
-  sh=$(sips -g pixelHeight "$in" | awk '/pixelHeight/{print $2}')
-  sips -z "$H" "$W" "$in" --out "$out" >/dev/null
+  info=$(sips -g pixelWidth -g pixelHeight "$in") || { echo "画像のサイズを取得できません: $in" >&2; exit 3; }
+  sw=$(printf '%s\n' "$info" | awk '/pixelWidth/{print $2}')
+  sh=$(printf '%s\n' "$info" | awk '/pixelHeight/{print $2}')
+  # sips は入力の形式のまま保存するので、出力の拡張子に合わせる(拡張子と中身を一致させる)
+  case "$(printf '%s' "${out##*.}" | tr 'A-Z' 'a-z')" in
+    jpg|jpeg) fmt=jpeg ;;
+    *) fmt=png ;;
+  esac
+  sips -s format "$fmt" -z "$H" "$W" "$in" --out "$out" >/dev/null || { echo "画像を伸縮できません: $in" >&2; exit 3; }
 elif command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1; then
   im=$(command -v magick || command -v convert)
   if command -v magick >/dev/null 2>&1; then ident=(magick identify); else ident=(identify); fi
