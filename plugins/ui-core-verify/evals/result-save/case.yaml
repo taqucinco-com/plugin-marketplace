@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: result-save
+description: ui-checker の判定結果を渡すと -compare.md と -compare.json が保存され、loop_verdict と compare_size が入る
+tags: [ui-verify, result-save]
+context:
+  scaffold_script: fixture.sh

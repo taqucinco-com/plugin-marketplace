@@ -16,6 +16,63 @@
         "claude-code",
         "sync"
       ]
+    },
+    {
+      "name": "ios-simulator-operate",
+      "source": "./plugins/ios-simulator-operate",
+      "description": "iOS シミュレータを idb と xcrun simctl で操作(起動・スクリーンショット・要素取得・タップ)する",
+      "category": "development",
+      "tags": [
+        "ios",
+        "simulator",
+        "idb",
+        "simctl"
+      ]
+    },
+    {
+      "name": "android-emulator-operate",
+      "source": "./plugins/android-emulator-operate",
+      "description": "Android エミュレータを adb で操作(起動・アプリ起動・スクリーンショット・要素取得・タップ)する",
+      "category": "development",
+      "tags": [
+        "android",
+        "emulator",
+        "adb"
+      ]
+    },
+    {
+      "name": "ui-core-verify",
+      "source": "./plugins/ui-core-verify",
+      "description": "Android・iOS 共通の UI 検証ループ(ui-checker agent・Figma MCP・標準サイズ正規化・結果保存)の共有プラグイン",
+      "category": "development",
+      "tags": [
+        "ui",
+        "verify",
+        "figma",
+        "shared"
+      ]
+    },
+    {
+      "name": "ui-android-emu-verify",
+      "source": "./plugins/ui-android-emu-verify",
+      "description": "Android エミュレータ上のアプリの UI を検証する(android-emulator-operate と ui-core-verify を利用)",
+      "category": "development",
+      "tags": [
+        "android",
+        "ui",
+        "verify"
+      ]
+    },
+    {
+      "name": "ui-ios-sim-verify",
+      "source": "./plugins/ui-ios-sim-verify",
+      "description": "iOS シミュレータ上のアプリの UI を検証する(ios-simulator-operate と ui-core-verify を利用)",
+      "category": "development",
+      "tags": [
+        "ios",
+        "ui",
+        "verify"
+      ]
     }
   ]
 }

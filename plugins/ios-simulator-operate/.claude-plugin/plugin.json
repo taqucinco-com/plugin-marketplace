@@ -1,0 +1,8 @@
+{
+  "name": "ios-simulator-operate",
+  "version": "0.1.0",
+  "description": "iOS シミュレータを idb と xcrun simctl で操作(起動・スクリーンショット・要素取得・タップ)する手順を提供する",
+  "author": {
+    "name": "taqucinco"
+  }
+}

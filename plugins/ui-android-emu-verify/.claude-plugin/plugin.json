@@ -1,0 +1,12 @@
+{
+  "name": "ui-android-emu-verify",
+  "version": "0.1.0",
+  "description": "Android エミュレータ上のアプリの UI を検証する（操作は android-emulator-operate、評価ループは ui-core-verify を利用）",
+  "author": {
+    "name": "taqucinco"
+  },
+  "dependencies": [
+    "android-emulator-operate",
+    "ui-core-verify"
+  ]
+}

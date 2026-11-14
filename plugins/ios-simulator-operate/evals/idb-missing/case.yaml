@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: idb-missing
+description: idb が未導入のとき、勝手にインストールせず公式手順を案内して確認し、idb を使わない縮退を説明する
+tags: [idb, guide]
+context:
+  scaffold_script: fixture.sh

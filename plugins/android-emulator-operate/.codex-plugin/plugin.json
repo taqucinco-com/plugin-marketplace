@@ -1,0 +1,9 @@
+{
+  "name": "android-emulator-operate",
+  "version": "0.1.0",
+  "description": "Android エミュレータを adb で操作(起動・アプリのインストールと起動・スクリーンショット・要素取得・タップ)する手順を提供する",
+  "author": {
+    "name": "taqucinco"
+  },
+  "skills": "./skills/"
+}

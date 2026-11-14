@@ -1,0 +1,9 @@
+{
+  "name": "ui-ios-sim-verify",
+  "version": "0.1.0",
+  "description": "iOS シミュレータ上のアプリの UI を検証する（操作は ios-simulator-operate、評価ループは ui-core-verify を利用）",
+  "author": {
+    "name": "taqucinco"
+  },
+  "skills": "./skills/"
+}
