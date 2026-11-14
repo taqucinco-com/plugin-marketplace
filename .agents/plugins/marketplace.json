@@ -1,0 +1,20 @@
+{
+  "name": "plugin-marketplace",
+  "interface": {
+    "displayName": "plugin-marketplace"
+  },
+  "plugins": [
+    {
+      "name": "sync-devin-codex",
+      "source": {
+        "source": "local",
+        "path": "./plugins/sync-devin-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

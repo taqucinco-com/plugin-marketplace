@@ -1,0 +1,9 @@
+{
+  "name": "sync-devin-codex",
+  "version": "0.1.0",
+  "description": "Claude Code の .claude/ 設定(skills・agents・rules・permissions・MCP)を Devin と Codex 用の設定へ変換・同期する",
+  "author": {
+    "name": "taqucinco"
+  },
+  "skills": "./skills/"
+}

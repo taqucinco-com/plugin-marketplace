@@ -1,0 +1,75 @@
+name: Validate marketplace
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Validate marketplace and plugins
+        run: |
+          claude plugin validate .
+          for dir in plugins/*/; do
+            claude plugin validate "$dir"
+          done
+
+      - name: Check Devin/Codex manifests are consistent
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          claude = json.load(open(".claude-plugin/marketplace.json"))
+          codex = json.load(open(".agents/plugins/marketplace.json"))
+          errors = []
+          names = [p["name"] for p in claude["plugins"]]
+          if names != [p["name"] for p in codex["plugins"]]:
+              errors.append(f"marketplace のプラグイン一覧が不一致: {names}")
+          for n in names:
+              base = f"plugins/{n}"
+              c = json.load(open(f"{base}/.claude-plugin/plugin.json"))
+              x = json.load(open(f"{base}/.codex-plugin/plugin.json"))
+              for k in ("name", "version"):
+                  if c.get(k) != x.get(k):
+                      errors.append(f"{n}: {k} が .claude-plugin と .codex-plugin で不一致")
+              link = f"{base}/.devin-plugin/plugin.json"
+              if not (os.path.islink(link) and os.path.exists(link)):
+                  errors.append(f"{link} が有効なシンボリックリンクではない")
+          print("\n".join(errors) or "OK")
+          sys.exit(1 if errors else 0)
+          PY
+
+  validate-codex:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Codex CLI
+        run: npm install -g @openai/codex
+
+      - name: Add marketplace and install every plugin (isolated CODEX_HOME)
+        run: |
+          export CODEX_HOME="$(mktemp -d)"
+          codex plugin marketplace add "$PWD"
+          mp="$(python3 -c 'import json;print(json.load(open(".agents/plugins/marketplace.json"))["name"])')"
+          for name in $(python3 -c 'import json;print(" ".join(p["name"] for p in json.load(open(".agents/plugins/marketplace.json"))["plugins"]))'); do
+            codex plugin add "$name@$mp"
+          done
+          codex plugin list
