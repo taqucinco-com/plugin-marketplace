@@ -57,6 +57,7 @@ jobs:
           PY
 
   validate-codex:
+    name: validate codex
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
