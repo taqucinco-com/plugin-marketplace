@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   validate:
+    name: validate claude
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
