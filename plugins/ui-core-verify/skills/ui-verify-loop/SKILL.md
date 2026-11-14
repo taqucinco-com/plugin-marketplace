@@ -20,7 +20,7 @@ description: モバイルアプリ（Androidエミュレータ・iOSシミュレ
 - Figmaと比較する場合のみ、上記の`figma`MCPツールが利用可能で、Claude Codeを起動した環境に環境変数`FIGMA_API_KEY`が設定されていること（未設定でもサーバー自体は接続済みと表示されるが、ツール呼び出しが認証エラーになる）。未設定・MCPが使えない場合は、ユーザーにその旨を伝え、Figma比較は行わず手順2-Bに切り替えてよいか確認する（勝手に切り替えて「Figmaと一致した」と報告しない）。
 - アプリのビルド方法・パッケージ名は、呼び出し元のプロジェクトの手順に従う（このスキルでは決めない）。
 - このプラグインは、プラットフォーム別プラグイン（`ui-android-emu-verify`/`ui-ios-sim-verify`）から依存される共有部品で、単体では操作手段を持たない。`--plugin-dir`でロードする場合は、依存先も含めて指定する（依存が解決できないとプラグインごとロードされない）。
-- **Claude Code以外（Codex・Devin）では、そのままでは動かない。** `ui-checker`agentと`figma`MCPはプラグインの仕組みで配られるのはClaude Codeだけで、Codex用プラグインはスキルしか運ばない。使う場合は、`ui-core-verify/agents/ui-checker.md`と`ui-core-verify/.mcp.json`を対象プロジェクトの`.claude/agents/`・`.mcp.json`に置いたうえで`sync-devin-codex`で変換する。この経路の動作は未検証。
+- **Claude Code以外（Codex・Devin）では、そのままでは動かない。** `ui-checker`agentはClaude Code専用で、Codex・Devinには配られない。`figma`MCPはCodex用マニフェスト（`mcpServers`）とDevinの`.mcp.json`で宣言済みだが、この経路の動作は未検証。agentが要る場合は、`ui-core-verify/agents/ui-checker.md`を対象プロジェクトの`.claude/agents/`に置いたうえで`sync-devin-codex`で変換する。
 
 ## 画面の評価と`ui-checker`によるループ
 

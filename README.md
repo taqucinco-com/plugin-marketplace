@@ -33,3 +33,6 @@ Devin は `marketplace.json` を読まず、プラグイン単位でインスト
 | `ui-core-verify` | Android・iOS 共通の UI 検証ループ(ui-checker agent・Figma MCP・画像/座標の標準サイズ正規化・結果保存)を提供する共有プラグイン |
 | `ui-android-emu-verify` | Android エミュレータ上のアプリの UI を検証する(操作は `android-emulator-operate`、評価ループは `ui-core-verify` を利用) |
 | `ui-ios-sim-verify` | iOS シミュレータ上のアプリの UI を検証する(操作は `ios-simulator-operate`、評価ループは `ui-core-verify` を利用) |
+| `pr-ui-evidence` | PR の差分から影響する画面を推定し、before/after のスクリーンショットを撮って PR 説明文に載せる |
+| `maestro-scenario-author` | ユーザーと対話しながら Maestro の E2E シナリオ(flow YAML)を作成・検証する |
+| `maestro-ci-setup` | Maestro の E2E を GitHub Actions の Android エミュレータ / iOS シミュレータで実行する CI を整える |

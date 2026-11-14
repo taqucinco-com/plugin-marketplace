@@ -1,0 +1,8 @@
+{
+  "name": "maestro-scenario-author",
+  "version": "0.2.0",
+  "description": "ユーザーと対話しながら、実機画面の要素を確認して Maestro の E2E シナリオ(flow YAML)を作成・検証する",
+  "author": {
+    "name": "taqucinco"
+  }
+}

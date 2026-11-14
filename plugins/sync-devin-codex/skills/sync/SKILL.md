@@ -1,10 +1,19 @@
 ---
 name: sync
 description: Claude Code の .claude/ 配下(skills・agents・rules・settings.json の permissions.deny・.mcp.json)を Devin と Codex 用の設定へ変換・同期する。.claude/ を変更した後や、リポジトリを Devin・Codex に対応させたいとき、同期の差分を確認したいときに使う。
-argument-hint: "[--check] [--target devin|codex|all]"
+argument-hint: "[--check] [--quick] [--target devin|codex|all]"
 ---
 
 `.claude/` を実体(正)として、Devin(`.devin/`)と Codex(`.codex/`、`.agents/`)の設定を派生させる。Claude Code 側の設定は Devin・Codex のために変更しない。
+
+## 省力モード(`--quick`)
+
+`--quick` を付けると、`sync.py` がデフォルトブランチを **fetch して最新にしてから**(リモートの `HEAD` を問い合わせてブランチ名を決めるので、ローカルの `origin/HEAD` が古くてもよい)、同期元(`.claude/`・`.mcp.json`・`AGENTS.md`・`CLAUDE.md`・`.devin/global_rules.md`)がデフォルトブランチとの共通の祖先から変わっているかを調べる。未コミットの変更と未追跡ファイルも含む。
+
+- 変更が無ければ「同期を省略しました」と出力して終了する。**このとき手順の 1・3〜5 は行わない**(変換も報告も要らない)。その旨だけユーザーに伝える。
+- 変更があれば、通常どおり下の手順を続ける。
+- リモートが無い・fetch に失敗した・デフォルトブランチを特定できないときは、安全側に倒して通常どおり同期する(理由が出力される)。
+- 生成物を手で編集した場合や、このプラグインの更新で出力形式が変わった場合は、同期元に変更が無くてもずれる。**確実に確認したいときは `--quick` を付けない**。省略した結果を「生成物が最新」と断定しない(「同期元に変更が無い」とだけ言う)。`--check` との併用はエラー(終了コード 2)になる。
 
 ## 手順
 

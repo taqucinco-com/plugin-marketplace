@@ -4,6 +4,7 @@
 使い方（リポジトリ内で実行）:
   python3 -I sync.py                  生成して書き込む
   python3 -I sync.py --check          差分があれば終了コード1で終わる（書き込まない）
+  python3 -I sync.py --quick          デフォルトブランチを fetch して比較し、同期元に変更が無ければ何もしない
   python3 -I sync.py --target devin   Devin 用だけ（codex も指定可。既定は all）
   python3 -I sync.py --root PATH      対象リポジトリのルートを指定する
 
@@ -580,11 +581,68 @@ def apply(p: Plan, check: bool) -> int:
     return 0
 
 
+# 同期元(これが変わらなければ生成物も変わらない)
+QUICK_SOURCES = [".claude", ".mcp.json", "AGENTS.md", "CLAUDE.md", ".devin/global_rules.md"]
+
+
+def _git(root: Path, *args: str, timeout: int = 60) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=timeout)
+
+
+def _default_branch(root: Path) -> str | None:
+    """デフォルトブランチ名。ローカルの origin/HEAD は古いことがあるため、リモートに問い合わせるのを優先する。"""
+    try:
+        r = _git(root, "ls-remote", "--symref", "origin", "HEAD")
+        m = re.search(r"^ref: refs/heads/(\S+)\s+HEAD$", r.stdout, re.M) if r.returncode == 0 else None
+        if m:
+            return m.group(1)
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    r = _git(root, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+    if r.returncode == 0 and r.stdout.strip().startswith("origin/"):
+        return r.stdout.strip()[len("origin/"):]
+    for b in ("main", "master"):
+        if _git(root, "rev-parse", "--verify", "-q", f"refs/remotes/origin/{b}").returncode == 0:
+            return b
+    return None
+
+
+def sources_changed(root: Path) -> tuple[bool, str]:
+    """同期元がデフォルトブランチ(最新を fetch する)から変わっているか。
+
+    判断できないとき(リモートが無い・fetch に失敗など)は、安全側に倒して変更ありとし、理由を返す。
+    """
+    branch = _default_branch(root)
+    if branch is None:
+        return True, "デフォルトブランチを特定できないため、通常どおり同期します"
+    try:
+        f = _git(root, "fetch", "--quiet", "origin", f"+refs/heads/{branch}:refs/remotes/origin/{branch}", timeout=120)
+    except (subprocess.TimeoutExpired, OSError):
+        return True, f"origin/{branch} の fetch がタイムアウトしたため、通常どおり同期します"
+    if f.returncode != 0:
+        return True, f"origin/{branch} を fetch できなかったため、通常どおり同期します"
+    base = _git(root, "merge-base", "HEAD", f"origin/{branch}")
+    if base.returncode != 0:
+        return True, f"origin/{branch} との共通の祖先が無いため、通常どおり同期します"
+    commit = base.stdout.strip()
+    diff = _git(root, "diff", "--name-only", commit, "--", *QUICK_SOURCES)
+    untracked = _git(root, "ls-files", "--others", "--exclude-standard", "--", *QUICK_SOURCES)
+    if diff.returncode != 0 or untracked.returncode != 0:
+        return True, "差分を取得できなかったため、通常どおり同期します"
+    changed = [x for x in (diff.stdout + untracked.stdout).splitlines() if x]
+    if changed:
+        return True, f"origin/{branch} から同期元が変わっています: " + ", ".join(sorted(set(changed))[:5]) + (" ほか" if len(set(changed)) > 5 else "")
+    return False, f"origin/{branch}(fetch 済み)から同期元の変更が無いため、同期を省略しました"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--target", choices=["all", "devin", "codex"], default="all")
     ap.add_argument("--root")
+    ap.add_argument("--quick", action="store_true",
+                    help="デフォルトブランチを fetch して比較し、同期元(.claude/・.mcp.json・AGENTS.md など)に"
+                         "変更が無ければ何もしない。生成物の手編集のずれは検知しない(確実に確認するなら付けない)")
     ap.add_argument("--skip-deny", action="append", default=[], metavar="[devin:|codex:]RULE",
                     help="リポジトリ固有のルールとして、deny ルール(例: 'Bash(git push *)')を変換しない。"
                          "先頭に devin: か codex: を付けるとそのターゲットだけ。繰り返し指定できる")
@@ -605,6 +663,14 @@ def main() -> int:
     if not (root / ".claude").is_dir():
         print(f"{root}/.claude が見つかりません", file=sys.stderr)
         return 2
+    if args.quick and args.check:
+        print("--quick と --check は併用できません(生成物を比較しないため、ずれを見逃します)", file=sys.stderr)
+        return 2
+    if args.quick:
+        changed, reason = sources_changed(root)
+        print(reason)
+        if not changed:
+            return 0
     targets = {"devin", "codex"} if args.target == "all" else {args.target}
     return apply(build_plan(root, targets, skip), args.check)
 

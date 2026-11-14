@@ -1,0 +1,197 @@
+name: Android emulator maestro test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  # ビルドとMaestro実行は別runner（別ディスク）に分ける。APKはartifactで受け渡す。
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # __TODO: secretsを使うならenvironment名を指定（不要なら行ごと削除）
+    # environment: __TODO_ENVIRONMENT__
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # __TODO: プロジェクトのビルド手順に置き換える（Flutter / React Native / ネイティブなど）。
+      # Maestroはビルドしないので、ここで「インストールできるAPK」を作る。
+      # 例(ネイティブ): ./gradlew assembleDebug
+      - name: Build debug APK
+        run: |
+          echo "__TODO: build the debug APK" >&2
+          exit 1
+
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: __TODO_APK_PATH__   # 例: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 1
+
+  android-emulator-maestro:
+    needs: build-apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # environment: __TODO_ENVIRONMENT__
+    env:
+      ANDROID_API_LEVEL: "34"
+      ANDROID_AVD_NAME: "ci_test"
+      ANDROID_AVD_TARGET: "google_apis"
+      ARTIFACT_DIR: "maestro-artifacts"
+      # Androidのapplication id。flowの先頭のappIdと一致させる。
+      APP_ID: "__TODO_APP_ID__"
+      # flowのディレクトリまたはファイル
+      FLOW_PATH: "__TODO_FLOW_PATH__"
+      # brewのformulaはopenjdkを別途入れようとするため、リリースzipを直接展開する。
+      MAESTRO_VERSION: "2.10.0"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download debug APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-debug-apk
+          path: apk
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: AVD cache
+        uses: actions/cache@v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+            /usr/local/lib/android/sdk/system-images/android-${{ env.ANDROID_API_LEVEL }}
+          key: avd-${{ env.ANDROID_API_LEVEL }}-${{ env.ANDROID_AVD_TARGET }}
+
+      - name: Remove stale emulator lock files from cached AVD
+        run: |
+          mkdir -p ~/.android/avd
+          find ~/.android/avd -name "*.lock" -print -exec rm -rf {} +
+
+      # AVD作成とブート確認はreactivecircusに任せる。終了時に殺されるのは
+      # このステップで起動したエミュレータのプロセスだけで、AVD自体は残る。
+      - name: Create AVD and verify boot
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ env.ANDROID_API_LEVEL }}
+          avd-name: ${{ env.ANDROID_AVD_NAME }}
+          force-avd-creation: false
+          target: ${{ env.ANDROID_AVD_TARGET }}
+          arch: "x86_64"
+          script: echo "AVD created and boot-verified."
+
+      - name: Start Android emulator (background)
+        run: |
+          nohup "$ANDROID_HOME/emulator/emulator" -avd "$ANDROID_AVD_NAME" -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim > /tmp/emulator.log 2>&1 &
+          disown
+          # adb shell経由でデバイス側で評価させるため、シングルクォートで囲む
+          "$ANDROID_HOME/platform-tools/adb" wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 3; done'
+          "$ANDROID_HOME/platform-tools/adb" devices
+
+      # flowのappIdで起動できるよう、アプリが実際に入ったことを確かめる。
+      - name: Install app on emulator
+        run: |
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          "$ADB" -s emulator-5554 install -r "$(ls apk/*.apk | head -n 1)"
+          if "$ADB" -s emulator-5554 shell pm list packages | tr -d '\r' | grep -Fqx "package:$APP_ID"; then
+            echo "インストール済みであることを確認した: $APP_ID"
+          else
+            echo "appIdのアプリが端末に見つからない: $APP_ID" >&2
+            "$ADB" -s emulator-5554 shell pm list packages | tr -d '\r' | grep -i "${APP_ID%.*}" >&2 || true
+            exit 1
+          fi
+
+      - name: Maestro cache
+        id: maestro-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/maestro
+          key: maestro-${{ runner.os }}-${{ env.MAESTRO_VERSION }}
+
+      - name: Install Maestro
+        if: steps.maestro-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o /tmp/maestro.zip \
+            "https://github.com/mobile-dev-inc/maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          unzip -q /tmp/maestro.zip -d "$HOME"
+
+      - name: Add Maestro to PATH
+        run: |
+          echo "$HOME/maestro/bin" >> "$GITHUB_PATH"
+          java -version
+          ls -l "$HOME/maestro/bin/maestro"
+
+      - name: Start screen recording
+        run: |
+          mkdir -p "$ARTIFACT_DIR"
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          # screenrecordは1本180秒で止まるため、停止フラグが立つまで180秒ごとに区切って録り続ける
+          "$ADB" -s emulator-5554 shell 'rm -f /data/local/tmp/rec_stop /data/local/tmp/maestro-recording-*.mp4'
+          nohup "$ADB" -s emulator-5554 shell 'i=0; while [ ! -f /data/local/tmp/rec_stop ]; do screenrecord --time-limit 180 /data/local/tmp/maestro-recording-$i.mp4; i=$((i+1)); done' > /tmp/screenrecord.log 2>&1 &
+          disown
+
+      - name: Run maestro flow
+        run: |
+          mkdir -p "$ARTIFACT_DIR"
+          maestro test "$FLOW_PATH" \
+            --udid emulator-5554 \
+            --debug-output "$ARTIFACT_DIR/debug" \
+            --flatten-debug-output \
+            --format JUNIT \
+            --output "$ARTIFACT_DIR/report.xml"
+
+      - name: Stop screen recording
+        if: always()
+        run: |
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          "$ADB" -s emulator-5554 shell touch /data/local/tmp/rec_stop || true
+          "$ADB" -s emulator-5554 shell pkill -SIGINT screenrecord || true
+          # mp4が書き終わる（screenrecordが終了する）のを最大15秒待ってからpullする
+          for _ in $(seq 1 15); do
+            "$ADB" -s emulator-5554 shell pidof screenrecord > /dev/null 2>&1 || break
+            sleep 1
+          done
+          for f in $("$ADB" -s emulator-5554 shell 'ls /data/local/tmp/maestro-recording-*.mp4' 2>/dev/null | tr -d '\r'); do
+            "$ADB" -s emulator-5554 pull "$f" "$ARTIFACT_DIR/$(basename "$f")" || true
+          done
+
+      - name: Upload maestro artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-maestro-test
+          path: ${{ env.ARTIFACT_DIR }}
+
+      - name: Dump emulator log on failure
+        if: failure()
+        run: |
+          "$ANDROID_HOME/platform-tools/adb" devices || true
+          cat /tmp/emulator.log || true
+
+      - name: Stop Android emulator
+        if: always()
+        run: |
+          "$ANDROID_HOME/platform-tools/adb" -s emulator-5554 emu kill || true

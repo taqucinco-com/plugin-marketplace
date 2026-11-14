@@ -1,0 +1,167 @@
+name: iOS simulator maestro test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  # ビルドとMaestro実行は別runner（別ディスク）に分ける。.appはartifactで受け渡す。
+  build-app:
+    # __TODO: 使いたいXcodeがデフォルトで入っているランナーイメージを選ぶ
+    runs-on: macos-26
+    timeout-minutes: 30
+    # __TODO: secretsを使うならenvironment名を指定（不要なら行ごと削除）
+    # environment: __TODO_ENVIRONMENT__
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # __TODO: プロジェクトのビルド手順に置き換える（Flutter / React Native / ネイティブなど）。
+      # Maestroはビルドしないので、ここで「シミュレータ向けの.app」を作る（署名不要）。
+      # 例(ネイティブ): xcodebuild -scheme App -sdk iphonesimulator -configuration Debug -derivedDataPath build
+      - name: Build app for simulator
+        run: |
+          echo "__TODO: build the simulator .app" >&2
+          exit 1
+
+      # upload-artifactはzipで固めるため実行ビットが失われる。tarに固めて権限を保つ。
+      - name: Pack simulator app
+        run: tar -cf App.tar -C "$(dirname __TODO_APP_PATH__)" "$(basename __TODO_APP_PATH__)"   # 例: __TODO_APP_PATH__ = build/Build/Products/Debug-iphonesimulator/App.app
+
+      - name: Upload simulator app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-app
+          path: App.tar
+          retention-days: 1
+
+  run-maestro:
+    needs: build-app
+    runs-on: macos-26
+    timeout-minutes: 45
+    # environment: __TODO_ENVIRONMENT__
+    env:
+      SIMULATOR_NAME: "ci_maestro_test"
+      ARTIFACT_DIR: "maestro-artifacts"
+      # iOSのbundle id。flowの先頭のappIdと一致させる。
+      APP_ID: "__TODO_BUNDLE_ID__"
+      # flowのディレクトリまたはファイル
+      FLOW_PATH: "__TODO_FLOW_PATH__"
+      # brewのformulaはopenjdkを別途入れようとするため、リリースzipを直接展開する。
+      MAESTRO_VERSION: "2.10.0"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download simulator app artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-simulator-app
+
+      - name: Unpack simulator app
+        run: |
+          # tar内のバンドル名がApp.app以外でもApp.appとして扱えるよう、展開後にリネームする
+          mkdir app-unpacked
+          tar -xf App.tar -C app-unpacked
+          mv app-unpacked/*.app App.app
+
+      # ランナーイメージの更新でXcode/ランタイムは変わるため、固定せず利用可能なものから選ぶ。
+      # 新規作成デバイスの初回起動はData Migrationに数分かかるが`simctl boot`自体は即座に返る。
+      # ここでは起動を開始するだけにし、待ち合わせはインストール直前に行う。
+      - name: Create and boot iOS Simulator
+        run: |
+          RUNTIME=$(xcrun simctl list runtimes --json \
+            | jq -r '[.runtimes[] | select(.isAvailable and (.identifier | contains("iOS")))]
+                     | sort_by(.version | split(".") | map(tonumber)) | last | .identifier')
+          DEVICE_TYPE=$(xcrun simctl list devicetypes --json \
+            | jq -r '[.devicetypes[] | select(.productFamily == "iPhone")]
+                     | (map(select(.name == "iPhone 16")) + .) | first | .identifier')
+
+          UDID=$(xcrun simctl create "$SIMULATOR_NAME" "$DEVICE_TYPE" "$RUNTIME")
+          echo "SIMULATOR_UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID"
+
+          echo "OS: $RUNTIME / Device: $DEVICE_TYPE / UDID: $UDID"
+          {
+            echo "### 実行環境"
+            echo ""
+            echo "| 項目 | 値 |"
+            echo "| --- | --- |"
+            echo "| OS | $RUNTIME |"
+            echo "| デバイス | $DEVICE_TYPE |"
+            echo "| Maestro | ${MAESTRO_VERSION} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Data Migrationが終わるまで、bootstatusはきちんと待つ。
+      - name: Wait for simulator boot
+        run: xcrun simctl bootstatus "$SIMULATOR_UDID"
+
+      # flowのappIdと一致していないとMaestroが起動できないので、ここで突き合わせる。
+      - name: Install app on simulator
+        run: |
+          xcrun simctl install "$SIMULATOR_UDID" App.app
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" App.app/Info.plist)
+          echo "インストールしたbundle id: $BUNDLE_ID"
+          echo "flowのappId             : $APP_ID"
+          if [ "$BUNDLE_ID" != "$APP_ID" ]; then
+            echo "bundle idとappIdが一致しない" >&2
+            exit 1
+          fi
+
+      - name: Maestro cache
+        id: maestro-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/maestro
+          key: maestro-${{ runner.os }}-${{ env.MAESTRO_VERSION }}
+
+      - name: Install Maestro
+        if: steps.maestro-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o /tmp/maestro.zip \
+            "https://github.com/mobile-dev-inc/maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          unzip -q /tmp/maestro.zip -d "$HOME"
+
+      # ランナーにはMaestroの要件(17+)を満たすJavaが入っている想定。無ければsetup-javaを足す。
+      - name: Add Maestro to PATH
+        run: |
+          echo "$HOME/maestro/bin" >> "$GITHUB_PATH"
+          java -version
+          ls -l "$HOME/maestro/bin/maestro"
+
+      - name: Start screen recording
+        run: |
+          mkdir -p "$ARTIFACT_DIR"
+          nohup xcrun simctl io "$SIMULATOR_UDID" recordVideo --codec h264 "$ARTIFACT_DIR/maestro-recording.mp4" > /tmp/simctl-record.log 2>&1 &
+          echo "RECORDING_PID=$!" >> "$GITHUB_ENV"
+          disown
+
+      # 初回はXCUITestドライバをシミュレータへ導入するため時間がかかる。
+      - name: Run maestro flow
+        run: |
+          mkdir -p "$ARTIFACT_DIR"
+          maestro test "$FLOW_PATH" \
+            --udid "$SIMULATOR_UDID" \
+            --debug-output "$ARTIFACT_DIR/debug" \
+            --flatten-debug-output \
+            --format JUNIT \
+            --output "$ARTIFACT_DIR/report.xml"
+
+      - name: Stop screen recording
+        if: always() && env.RECORDING_PID != ''
+        run: |
+          kill -INT "$RECORDING_PID" 2>/dev/null || true
+          sleep 2
+          cp /tmp/simctl-record.log "$ARTIFACT_DIR/simctl-record.log" 2>/dev/null || true
+
+      - name: Upload maestro artifacts
+        if: always() && env.SIMULATOR_UDID != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-maestro-test
+          path: ${{ env.ARTIFACT_DIR }}
+
+      - name: Dump simulator info on failure
+        if: failure()
+        run: |
+          xcrun simctl list devices || true
+          xcrun simctl spawn "$SIMULATOR_UDID" log show --last 2m --style compact || true

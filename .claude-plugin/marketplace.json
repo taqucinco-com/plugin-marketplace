@@ -73,6 +73,40 @@
         "ui",
         "verify"
       ]
+    },
+    {
+      "name": "pr-ui-evidence",
+      "source": "./plugins/pr-ui-evidence",
+      "description": "PR の差分から影響する画面を推定し、before/after のスクリーンショットを撮って PR 説明文に載せる",
+      "category": "development",
+      "tags": [
+        "pr",
+        "ui",
+        "evidence",
+        "screenshot"
+      ]
+    },
+    {
+      "name": "maestro-scenario-author",
+      "source": "./plugins/maestro-scenario-author",
+      "description": "ユーザーと対話しながら Maestro の E2E シナリオ(flow YAML)を作成・検証する",
+      "category": "development",
+      "tags": [
+        "maestro",
+        "e2e",
+        "scenario"
+      ]
+    },
+    {
+      "name": "maestro-ci-setup",
+      "source": "./plugins/maestro-ci-setup",
+      "description": "Maestro の E2E を GitHub Actions の Android エミュレータ / iOS シミュレータで実行する CI を整える",
+      "category": "development",
+      "tags": [
+        "maestro",
+        "ci",
+        "github-actions"
+      ]
     }
   ]
 }

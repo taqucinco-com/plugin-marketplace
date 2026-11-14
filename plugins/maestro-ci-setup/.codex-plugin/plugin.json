@@ -1,0 +1,9 @@
+{
+  "name": "maestro-ci-setup",
+  "version": "0.1.0",
+  "description": "Maestro の E2E を GitHub Actions の Android エミュレータ / iOS シミュレータ上で実行する CI ワークフローを整える",
+  "author": {
+    "name": "taqucinco"
+  },
+  "skills": "./skills/"
+}

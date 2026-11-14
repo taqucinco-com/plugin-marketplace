@@ -1,0 +1,9 @@
+{
+  "name": "pr-ui-evidence",
+  "version": "0.1.0",
+  "description": "PR の差分から影響する画面を推定し、エミュレータ/シミュレータで before/after のスクリーンショットを撮って PR 説明文に載せる",
+  "author": {
+    "name": "taqucinco"
+  },
+  "skills": "./skills/"
+}
