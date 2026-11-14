@@ -28,3 +28,8 @@ Devin は `marketplace.json` を読まず、プラグイン単位でインスト
 | 名前 | 内容 |
 |---|---|
 | `sync-devin-codex` | `.claude/` の skills・agents・rules・permissions・MCP を Devin と Codex 用に変換・同期する(`/sync-devin-codex:sync`) |
+| `android-emulator-operate` | Android エミュレータを adb で操作(起動・アプリのインストールと起動・スクリーンショット・要素取得・タップ)する手順を提供する |
+| `ios-simulator-operate` | iOS シミュレータを idb と xcrun simctl で操作(起動・スクリーンショット・要素取得・タップ)する手順を提供する |
+| `ui-core-verify` | Android・iOS 共通の UI 検証ループ(ui-checker agent・Figma MCP・画像/座標の標準サイズ正規化・結果保存)を提供する共有プラグイン |
+| `ui-android-emu-verify` | Android エミュレータ上のアプリの UI を検証する(操作は `android-emulator-operate`、評価ループは `ui-core-verify` を利用) |
+| `ui-ios-sim-verify` | iOS シミュレータ上のアプリの UI を検証する(操作は `ios-simulator-operate`、評価ループは `ui-core-verify` を利用) |
