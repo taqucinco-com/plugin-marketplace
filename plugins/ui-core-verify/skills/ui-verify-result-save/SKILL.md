@@ -45,12 +45,15 @@ description: `ui-checker`agentによる画面比較結果を、人間が読むMa
 **Markdown（`<name>-compare.md`）**
 
 ```markdown
-# <画面名> ワイヤーフレーム比較
+# <画面名> UI検証結果
 
-- Figma node-id: <id>
+- 結果（loop_verdict）: <pass / retry_limit_reached / fatal>
+- 比較対象: <Figma node-id <id> / 依頼文の期待（Figmaなし）>
 - 比較日時: <date>
-- リファレンス: `<name>-figma.png` / 実装: `<name>-app.png`
+- リファレンス: `<name>-figma.png`（Figmaなしの場合は「なし」） / 実装: `<name>-app.png`
+- 比較サイズ: <幅>x<高さ>（`ui-checker`に渡した標準サイズ）
 - ループ回数: <イテレーションカウンタの最終値>
+- fatalの理由: <fatal_reason。fatalでない場合は「なし」>
 
 ## チェックリスト
 
@@ -96,4 +99,11 @@ description: `ui-checker`agentによる画面比較結果を、人間が読むMa
 
 `fatal`/`fatal_reason`は`ui-checker`の応答をそのまま転記する。`loop_verdict`はそれとは別に、呼び出し元がこのループ全体の結末（正常終了/上限到達/エスカレーション）を表すために付与する値である点に注意する。
 
-同じ画面を複数回検証する場合は上書きせず`<name>-compare-<timestamp>.json`のように連番/日時を付けて残し、`jq`等で時系列に読み込めば「実装が近づいているか」を追跡できる。
+### 再検証したときの履歴
+
+`<name>-compare.md`/`<name>-compare.json`は常に**最新の結果**を指す。同じ画面を再検証して保存するときは、既存の結果を上書きして消さないよう、次の順で行う。
+
+1. `<name>-compare.json`が既にあれば、その`.md`と`.json`の**両方**を、`<name>-compare-<タイムスタンプ>.md`と`<name>-compare-<タイムスタンプ>.json`に改名して残す。タイムスタンプは`date -u +%Y%m%dT%H%M%SZ`で取得する（自分で組み立てない）。
+2. 新しい結果を`<name>-compare.md`/`<name>-compare.json`に書く。
+
+こうすると、`jq`等で`<name>-compare-*.json`を時系列に読み込んで「実装が近づいているか」を追跡でき、`.md`と`.json`の対応も崩れない。

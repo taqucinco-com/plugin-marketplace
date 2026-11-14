@@ -11,6 +11,7 @@ Androidエミュレータで動くアプリのUIを検証する。**評価の進
 
 - `android-emulator-operate`スキル（`android-emulator-operate`プラグイン）と`ui-verify-loop`スキル（`ui-core-verify`プラグイン）が使えること。このプラグインは両方に依存しているため、マーケットプレイスからインストールすれば揃う。使えない場合はインストールをユーザーに案内する。
 - adbが無い場合の案内や、複数デバイス接続時の`adb -s`指定は`android-emulator-operate`に従う。
+- Codex・Devinでは、プラグイン単位の依存関係を解決できない。使う場合は、`android-emulator-operate`と`ui-core-verify`を個別にインストールする（`ui-core-verify`のagentとMCPはClaude Code専用。詳細は`ui-verify-loop`の前提を参照）。
 
 ## `ui-verify-loop`の読み替え
 
@@ -21,7 +22,7 @@ Androidエミュレータで動くアプリのUIを検証する。**評価の進
 | 操作スキル | `android-emulator-operate` |
 | スクリーンショットの取得 | `adb -s <シリアル> exec-out screencap -p`（同スキル3節） |
 | 構造情報の取得 | `uiautomator dump`でtext/content-desc/boundsを取得（同スキル4節） |
-| 構造情報の座標 | `bounds`は実ピクセル。`scripts/scale-structure.py`は自動で全体サイズを検出して伸縮する |
+| 構造情報の座標 | `bounds`は実ピクセル。`ui-verify-loop`の`scale-structure.py`が全体サイズを自動検出して伸縮する（スクリプトの場所の解決は`ui-verify-loop`の手順1に従う） |
 | アプリの再インストール・起動 | `adb install -r`と`monkey`/`am start`（同スキル2節） |
 | 環境要因の切り分け | 同スキル6節（ストレージ不足、無関係なダイアログなど） |
 

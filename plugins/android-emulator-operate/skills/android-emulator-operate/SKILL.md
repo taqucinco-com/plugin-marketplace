@@ -96,13 +96,18 @@ adb -s <シリアル> exec-out screencap -p > work/screenshots/<name>.png
 ```bash
 adb -s <シリアル> shell uiautomator dump /sdcard/wd.xml
 adb -s <シリアル> pull /sdcard/wd.xml work/wd.xml
-grep -o 'text="対象テキスト"[^/]*bounds="\[[0-9,]*\]\[[0-9,]*\]"' work/wd.xml
-# または content-desc="..." で検索
+# 1要素ぶんの <node ...> を取り出してから bounds を抜く（属性の途中に resource-id の "/" があっても止まらない）
+grep -o '<node[^>]*text="対象テキスト"[^>]*>' work/wd.xml | grep -o 'bounds="\[[0-9,]*\]\[[0-9,]*\]"'
+# content-desc で探す場合は text="..." を content-desc="..." に変える
 ```
 
 保存先は作業ディレクトリ配下（例: `work/wd.xml`）にする。`cd`した状態だと相対パスが意図しない場所に書き込まれる点は3節と同様に注意すること。
 
-`bounds="[x1,y1][x2,y2]"`はデバイスの実ピクセル座標そのもの（スケーリング不要）。中心 `((x1+x2)/2, (y1+y2)/2)` をそのまま`adb shell input tap`に渡す。
+`bounds="[x1,y1][x2,y2]"`はデバイスの実ピクセル座標そのもの（スケーリング不要）。中心 `((x1+x2)/2, (y1+y2)/2)` をそのまま`adb shell input tap`に渡す。中心の計算は暗算せず、コマンドで求める。
+
+```bash
+grep -o '<node[^>]*text="対象テキスト"[^>]*>' work/wd.xml | grep -o 'bounds="[^"]*"' | grep -o '[0-9]\+' | paste -sd' ' - | awk '{printf "%d %d\n", ($1+$3)/2, ($2+$4)/2}'
+```
 
 ```bash
 adb -s <シリアル> shell input tap <x> <y>

@@ -86,8 +86,10 @@ idb list-targets | grep Booted
 `idb list-targets`の行末が`No Companion Connected`ではなく`/tmp/idb/<UDID>_companion.sock`になっていれば接続済み。以降はこのUDIDを使う。Bashツールはシェル状態を保持しないので、UDIDは各コマンドに直接書くか、コマンドごとに取得する。
 
 ```bash
-UDID=$(xcrun simctl list devices booted -j | jq -r '.devices[][0].udid')
+UDID=$(xcrun simctl list devices booted -j | jq -r '.devices[][] | select(.state=="Booted") | .udid')
 ```
+
+複数台が起動していると、UDIDが複数行返る。どれを操作対象にするかユーザーに確認するか、`xcrun simctl list devices booted`で名前を確認して1台を選び、以降は必ずそのUDIDを指定する（空のときは起動しているシミュレータが無い）。
 
 起動していない場合（利用可能なデバイスは`xcrun simctl list devices available`で確認）:
 

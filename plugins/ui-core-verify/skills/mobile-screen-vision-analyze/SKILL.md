@@ -24,7 +24,7 @@ description: モバイルアプリのスクリーンキャプチャ画像1枚を
 
 ## 分析観点とJSON Schema
 
-出力は以下の6つのトップレベルキーを持つ1つのJSONオブジェクトとする。「オブジェクトの特徴」「ランドマーク」は、Google Cloud Vision APIの`LABEL_DETECTION`/`LANDMARK_DETECTION`という機能名から着想を得ているが、対象は一般的な写真ではなくモバイルアプリのUI画面なので、意味をUI文脈に合わせて読み替えている（下記参照）。
+出力は以下の6つのセクションからなる1つのJSONオブジェクトとする（トップレベルキーは`source_image`・`image_size`・`objects`・`objects_count_confidence`・`landmarks`・`text_blocks`・`screen_understanding`の7個。1節が`source_image`と`image_size`の2キーを、2節が`objects`と`objects_count_confidence`の2キーを含む）。「オブジェクトの特徴」「ランドマーク」は、Google Cloud Vision APIの`LABEL_DETECTION`/`LANDMARK_DETECTION`という機能名から着想を得ているが、対象は一般的な写真ではなくモバイルアプリのUI画面なので、意味をUI文脈に合わせて読み替えている（下記参照）。
 
 ### 1. `source_image` / `image_size` — 入力のメタ情報
 

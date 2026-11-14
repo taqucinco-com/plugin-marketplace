@@ -34,7 +34,7 @@ skills:
 
 ## 出力形式
 
-必ず以下のJSON形式で回答してください（Markdownの前置き・後置きの説明文は不要）。`criteria`・`overall_verdict`は4節（`mobile-screen-vision-compare`の基準）、`fatal`・`fatal_reason`は5節（このagent固有の判定）の結果をそのまま埋める。
+必ず以下のJSON形式で回答してください（Markdownの前置き・後置きの説明文は不要）。`criteria`・`overall_verdict`は手順4（`mobile-screen-vision-compare`の基準）、`fatal`・`fatal_reason`は手順5（このagent固有の判定）の結果をそのまま埋める。
 
 ```json
 {

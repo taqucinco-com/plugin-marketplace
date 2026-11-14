@@ -20,15 +20,20 @@ if command -v sips >/dev/null 2>&1; then
   sips -z "$H" "$W" "$in" --out "$out" >/dev/null
 elif command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1; then
   im=$(command -v magick || command -v convert)
-  read -r sw sh < <("$im" identify -format '%w %h' "$in" 2>/dev/null || identify -format '%w %h' "$in")
+  if command -v magick >/dev/null 2>&1; then ident=(magick identify); else ident=(identify); fi
+  dims=$("${ident[@]}" -format '%w %h' "$in") || { echo "画像のサイズを取得できません: $in" >&2; exit 3; }
+  read -r sw sh <<<"$dims"
   "$im" "$in" -resize "${W}x${H}!" "$out"
 elif python3 -c 'import PIL' 2>/dev/null; then
-  read -r sw sh < <(python3 -c 'import sys;from PIL import Image;print(*Image.open(sys.argv[1]).size)' "$in")
+  dims=$(python3 -c 'import sys;from PIL import Image;print(*Image.open(sys.argv[1]).size)' "$in") || { echo "画像のサイズを取得できません: $in" >&2; exit 3; }
+  read -r sw sh <<<"$dims"
   python3 -c 'import sys;from PIL import Image;Image.open(sys.argv[1]).convert("RGB").resize((int(sys.argv[3]),int(sys.argv[4])),Image.LANCZOS).save(sys.argv[2])' "$in" "$out" "$W" "$H"
 else
   echo "画像を伸縮できるツールがありません（sips / ImageMagick / Python+Pillow のいずれかが必要）" >&2
   exit 3
 fi
+
+[[ ${sw:-} =~ ^[0-9]+$ && ${sh:-} =~ ^[0-9]+$ && $sw -gt 0 && $sh -gt 0 ]] || { echo "画像のサイズを取得できません: $in" >&2; rm -f "$out"; exit 3; }
 
 awk -v sw="$sw" -v sh="$sh" -v W="$W" -v H="$H" 'BEGIN{
   r=(sw/sh)/(W/H); if (r<1) r=1/r

@@ -10,6 +10,7 @@ iOSシミュレータで動くアプリのUIを検証する。**評価の進め�
 ## 前提
 
 - `ios-simulator-operate`スキル（`ios-simulator-operate`プラグイン）と`ui-verify-loop`スキル（`ui-core-verify`プラグイン）が使えること。このプラグインは両方に依存しているため、マーケットプレイスからインストールすれば揃う。使えない場合はインストールをユーザーに案内する。
+- Codex・Devinでは、プラグイン単位の依存関係を解決できない。使う場合は、`ios-simulator-operate`と`ui-core-verify`を個別にインストールする（`ui-core-verify`のagentとMCPはClaude Code専用。詳細は`ui-verify-loop`の前提を参照）。
 - `simctl`/`idb`がBashツールのサンドボックス内で動かない点（`dangerouslyDisableSandbox: true`が必要）、idb未導入時の案内は`ios-simulator-operate`に従う。
 
 ## `ui-verify-loop`の読み替え
@@ -21,7 +22,7 @@ iOSシミュレータで動くアプリのUIを検証する。**評価の進め�
 | 操作スキル | `ios-simulator-operate` |
 | スクリーンショットの取得 | `xcrun simctl io <UDID> screenshot`（同スキル3節） |
 | 構造情報の取得 | `idb ui describe-all --udid <UDID>`でtype/AXLabel/frameのJSONを取得（同スキル4節） |
-| 構造情報の座標 | `frame`は**ポイント**で、スクリーンショットの**ピクセル**とは別の座標系（例: 402x874pt と 1206x2622px）。それぞれを`scripts/scale-structure.py`と`scripts/normalize-image.sh`で標準サイズへ伸縮すれば揃う |
+| 構造情報の座標 | `frame`は**ポイント**で、スクリーンショットの**ピクセル**とは別の座標系（例: 402x874pt と 1206x2622px）。それぞれを`ui-verify-loop`の`scale-structure.py`と`normalize-image.sh`で標準サイズへ伸縮すれば揃う（スクリプトの場所の解決は`ui-verify-loop`の手順1に従う） |
 | アプリの再インストール・起動 | `xcrun simctl install`と`launch`（同スキル2節）。**デプロイ先は必ずUDIDで明示する** |
 | 環境要因の切り分け | 同スキル6節（`idb connect`の切れ、物理iPhoneへの誤デプロイなど） |
 

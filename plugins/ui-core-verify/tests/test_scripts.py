@@ -101,6 +101,15 @@ class NormalizeImage(TmpCase):
         r = self.run_normalize(src, self.dir / "n.png", "480*640")
         self.assertEqual(r.returncode, 2)
 
+    def test_broken_image_fails_without_output(self):
+        src = self.dir / "bad.png"
+        src.write_text("not an image", encoding="utf-8")
+        out = self.dir / "n.png"
+        r = self.run_normalize(src, out)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("->", r.stdout, "成功メッセージを出さない")
+        self.assertFalse(out.exists(), "出力ファイルを残さない")
+
     def test_missing_input_is_rejected(self):
         r = self.run_normalize(self.dir / "none.png", self.dir / "n.png")
         self.assertEqual(r.returncode, 2)
@@ -141,19 +150,85 @@ class ScaleStructure(TmpCase):
         self.assertEqual(button["frame"], {"x": 167.4, "y": 273.7, "width": 145.2, "height": 57.1})
         self.assertEqual(button["AXLabel"], "設定", "座標以外は変えない")
 
-    def test_figma_yaml_scales_inline_layout(self):
+    # figma-developer-mcp の get_figma_data は、ノードに `layout: layout_XXXX` の参照だけを出し、
+    # 実体を globalVars.styles にブロック形式の YAML(js-yaml の既定)で出す。
+    FIGMA_YAML = (
+        "nodes:\n"
+        "  - id: '13:76'\n"
+        "    name: Navigation\n"
+        "    layout: layout_ABC123\n"
+        "globalVars:\n"
+        "  styles:\n"
+        "    layout_ABC123:\n"
+        "      mode: none\n"
+        "      locationRelativeToParent:\n"
+        "        x: 100\n"
+        "        y: 50\n"
+        "      dimensions:\n"
+        "        width: 201\n"
+        "        height: 437\n"
+        "        aspectRatio: 0.46\n"
+        "    other:\n"
+        "      x: 7\n"
+    )
+
+    def test_figma_block_yaml_scales_layout_values_only(self):
         src = self.dir / "f.yaml"
-        src.write_text("- layout: { x: 100, y: 50, width: 402, height: 149.5 }\n", encoding="utf-8")
+        src.write_text(self.FIGMA_YAML, encoding="utf-8")
         out = self.dir / "o.yaml"
         r = run_scale(src, out, "--src", "402x874", "--dst", "480x1040")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(
-            out.read_text(encoding="utf-8"), "- layout: { x: 119.4, y: 59.5, width: 480, height: 177.9 }\n"
-        )
+        text = out.read_text(encoding="utf-8")
+        # 100*480/402=119.4, 50*1040/874=59.5, 201*480/402=240, 437*1040/874=520
+        self.assertIn("        x: 119.4\n        y: 59.5\n", text)
+        self.assertIn("        width: 240\n        height: 520\n", text)
+        self.assertIn("aspectRatio: 0.46", text, "比率は伸縮しない")
+        self.assertIn("layout: layout_ABC123", text, "参照はそのまま")
+        self.assertIn("    other:\n      x: 7\n", text, "layout 以外の x は伸縮しない")
+
+    def test_figma_flow_yaml_is_also_scaled(self):
+        src = self.dir / "f.yaml"
+        src.write_text("a:\n  locationRelativeToParent: { x: 100, y: 50 }\n  dimensions: { width: 201, height: 437 }\n", encoding="utf-8")
+        out = self.dir / "o.yaml"
+        r = run_scale(src, out, "--src", "402x874", "--dst", "480x1040")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        text = out.read_text(encoding="utf-8")
+        self.assertIn("locationRelativeToParent: { x: 119.4, y: 59.5 }".replace("{ ", "{").replace(" }", "}"), text.replace("{ ", "{").replace(" }", "}"))
+        self.assertIn("width: 240", text)
+        self.assertIn("height: 520", text)
+
+    def test_figma_json_scales_layout_values(self):
+        src = self.dir / "f.json"
+        src.write_text(json.dumps({"globalVars": {"styles": {"layout_A": {
+            "locationRelativeToParent": {"x": 100, "y": 50},
+            "dimensions": {"width": 201, "height": 437, "aspectRatio": 0.46}}}}}), encoding="utf-8")
+        out = self.dir / "o.json"
+        r = run_scale(src, out, "--src", "402x874", "--dst", "480x1040")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        layout = json.loads(out.read_text(encoding="utf-8"))["globalVars"]["styles"]["layout_A"]
+        self.assertEqual(layout["locationRelativeToParent"], {"x": 119.4, "y": 59.5})
+        self.assertEqual(layout["dimensions"], {"width": 240.0, "height": 520.0, "aspectRatio": 0.46})
+
+    def test_bounds_never_collapse_when_shrinking(self):
+        # 1px 幅の要素。左上を切り捨て・右下を切り上げるので 0 幅にならない。
+        src = self.dir / "wd.xml"
+        src.write_text('<n bounds="[0,0][1080,2400]"><n bounds="[100,100][101,101]"/></n>', encoding="utf-8")
+        out = self.dir / "o.xml"
+        r = run_scale(src, out, "--dst", "480x1040")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('bounds="[44,43][45,44]"', out.read_text(encoding="utf-8"))
+
+    def test_bounds_rounding_is_exact_not_float_dependent(self):
+        # 3*480/1080 = 1.333.. / 9*480/1080 = 4 ちょうど（浮動小数の誤差で 3 になってはいけない）
+        src = self.dir / "wd.xml"
+        src.write_text('<n bounds="[0,0][1080,2400]"><n bounds="[9,3][27,6]"/></n>', encoding="utf-8")
+        out = self.dir / "o.xml"
+        run_scale(src, out, "--dst", "480x1040")
+        self.assertIn('bounds="[4,1][12,3]"', out.read_text(encoding="utf-8"))
 
     def test_yaml_requires_explicit_source_size(self):
         src = self.dir / "f.yaml"
-        src.write_text("- layout: { x: 1, y: 1, width: 2, height: 2 }\n", encoding="utf-8")
+        src.write_text("a:\n  dimensions:\n    width: 2\n    height: 2\n", encoding="utf-8")
         r = run_scale(src, self.dir / "o.yaml", "--dst", "480x1040")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("--src", r.stderr)
