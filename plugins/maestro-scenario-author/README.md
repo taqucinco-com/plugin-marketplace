@@ -35,3 +35,15 @@ CI への組み込みは、`maestro-ci-setup` を使う。
 - 認証情報・トークンは flow に直書きせず、`env`(`maestro test -e KEY=VALUE`)で渡す。
 - 破壊的な操作(課金・本番データの削除・外部への送信)を含む flow は、テスト用の環境・アカウントでだけ動かす前提かを確認する。
 - 通っていない flow は、確認済みとして渡さず、現状と原因を明記する。
+
+## Decision AI(任意): ステップ後の進行確認
+
+手順 3 の各ステップの後に、「目的の画面になっているか」「権限ダイアログなどが前面に出ていないか」を、スクリーンショットから OpenAI Decisions API で判定できる(`SKILL.md` の手順 3.5)。目視確認のための `take_screenshot` を、自分で読まずに済ませる用途。
+
+- 有効になる条件は、`ui-core-verify` と同じ。環境変数 `DECISION_AI`(利用するプロジェクトの `settings.json` の `env`)と `OPENAI_API_KEY`(リポジトリの外。direnv など)の**両方**がそろったときだけ。そろわなければ従来どおり動く。要件(キーの置き場所・送信されるデータ・料金・キーの確認方法)は、[ui-core-verify の README](../ui-core-verify/README.md) を参照。
+- キーの存在確認は `python3 -I scripts/decide.py --check`(値を出さず、終了コードだけで返す)。`env`・`printenv`・`echo "$OPENAI_API_KEY"` は使わない。
+- 画像が OpenAI に送られる。個人情報・秘密情報が写る画面では使わない。
+- `scripts/decide.py` と `scripts/normalize-image.sh` は、`ui-core-verify` と同じものを置いている(プラグインは互いのファイルを参照できないため)。変えるときは 3 か所を揃える(`ui-core-verify` のテストが、同一かを確認する)。
+- 画面の保存に、`android-emulator-operate` / `ios-simulator-operate` の手順(`adb` / `simctl`)を使う。これらのプラグインが無ければ、この機能は使わない。
+- 判定結果は `proceed`(次のステップへ進む)、`inspect`(自分で確かめる)。`inspect_screen` と、最後に flow を通す実行(`maestro test`)は省かない。
+- 効果が出るのは、画像を読む回数が多いシナリオ。短いシナリオでは、ほとんど変わらない。

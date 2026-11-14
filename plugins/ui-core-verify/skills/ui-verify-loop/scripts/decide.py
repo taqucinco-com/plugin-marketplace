@@ -14,8 +14,19 @@
       修正に進まず ui-checker で確認させる(summary.missing_visual に列挙)。
       --raw を付けると、API の生のレスポンス(JSON)を標準エラーへ出す。標準出力は変わらない。
       リクエスト(画像・テキスト)とキーは出さない。Claude が実行する通常の手順では付けない。
-      出力の summary.next が "fix" なら、文言のある期待の要素が明らかに欠けている(summary.missing に列挙)。
-      "ui_checker" なら、この結果だけでは決められないので ui-checker に判定させる。
+      --profile で、summary の判定規則(用途)を切り替える。質問の名前は用途ごとに決まっている。
+        ui-verify(既定。ui-core-verify の修正ループ):
+          summary.next が "fix" なら、文言のある期待の要素が明らかに欠けている(summary.missing に列挙)。
+          "ui_checker" なら、この結果だけでは決められないので ui-checker に判定させる。
+        pr-change(pr-ui-evidence の before/after の変更判定。質問 changed と same_screen):
+          summary.next が "changed" / "unchanged" / "check"。unchanged でも画面を証跡から外さない。
+        maestro-step(maestro-scenario-author の1ステップごとの進行確認。質問 screen_not_usable と
+          blocked_by_dialog、--element に「目的の画面になっているか」):
+          summary.next が "proceed"(次のステップへ進んでよい) / "inspect"(Claude が画面を自分で確かめる)。
+
+  このファイルは ui-core-verify・pr-ui-evidence・maestro-scenario-author に同じものを置く
+  (プラグインは互いのファイルを参照できないため)。変えるときは3か所を揃える
+  (ui-core-verify/tests/test_scripts.py が同一かを確認する)。
 
 有効になる条件(両方そろったときだけ):
   1. 環境変数 DECISION_AI が 1 / true / on / yes のいずれか(settings.json の env で設定する)
@@ -123,7 +134,7 @@ def element_verdict(value):
     return "uncertain"
 
 
-def summarize(answers):
+def summarize_ui_verify(answers):
     """次にどうするかを、数値のしきい値だけで決める(呼び出し側が確率を暗算しないため)。
 
     next:
@@ -154,7 +165,67 @@ def summarize(answers):
     return {"next": nxt, "reason": reason, "missing": missing, "missing_visual": missing_visual, "uncertain": uncertain}
 
 
-def simplify(response, questions=()):
+def answer_value(answers, name):
+    for a in answers:
+        if a.get("name") == name:
+            return a.get("value")
+    return None
+
+
+def summarize_pr_change(answers):
+    """pr-ui-evidence: before/after が実質的に変わったか。
+
+    next:
+      "changed"   実質的な変更がある(証跡に載せる)
+      "unchanged" 変更が無い(証跡では「変わっていない」と明記する。画面は外さない)
+      "check"     決められない。Claude が before/after を自分で見て決める
+    """
+    if any(a["type"] == "refusal" for a in answers):
+        return {"next": "check", "reason": "refusal"}
+    changed = answer_value(answers, "changed")
+    same = answer_value(answers, "same_screen")
+    if not is_number(changed) or not is_number(same):
+        return {"next": "check", "reason": "no_answer"}
+    if same < PRESENT_MIN:
+        return {"next": "check", "reason": "not_same_screen"}
+    if changed >= PRESENT_MIN:
+        return {"next": "changed", "reason": "changed"}
+    if changed <= MISSING_MAX:
+        return {"next": "unchanged", "reason": "unchanged"}
+    return {"next": "check", "reason": "uncertain"}
+
+
+def summarize_maestro_step(answers):
+    """maestro-scenario-author: 1ステップ実行後に、目的の画面で、前面に妨げる表示が無いか。
+
+    next:
+      "proceed" 目的を満たし、妨げも無い。次のステップへ進んでよい
+      "inspect" それ以外。Claude が inspect_screen / スクリーンショットで自分で確かめる
+    """
+    if any(a["type"] == "refusal" for a in answers):
+        return {"next": "inspect", "reason": "refusal"}
+    unusable = answer_value(answers, "screen_not_usable")
+    blocked = answer_value(answers, "blocked_by_dialog")
+    goals = [a for a in answers if str(a["name"]).startswith(ELEMENT_PREFIX)]
+    if not goals:
+        return {"next": "inspect", "reason": "no_goal"}
+    if not is_number(unusable) or unusable >= UNUSABLE_MIN:
+        return {"next": "inspect", "reason": "screen_not_usable"}
+    if not is_number(blocked) or blocked > MISSING_MAX:
+        return {"next": "inspect", "reason": "blocked_or_unknown"}
+    if all(a.get("verdict") == "present" for a in goals):
+        return {"next": "proceed", "reason": "goal_reached"}
+    return {"next": "inspect", "reason": "goal_not_confirmed"}
+
+
+PROFILES = {
+    "ui-verify": summarize_ui_verify,
+    "pr-change": summarize_pr_change,
+    "maestro-step": summarize_maestro_step,
+}
+
+
+def simplify(response, questions=(), profile="ui-verify"):
     """API の応答を、スキルが扱いやすい形に整える。"""
     answers = response.get("answers")
     if not isinstance(answers, list):
@@ -176,7 +247,7 @@ def simplify(response, questions=()):
         if item.get("value") is not None:
             item["instructions"] = instructions.get(item["name"])
         out.append(item)
-    return {"summary": summarize(out), "answers": out, "usage": response.get("usage")}
+    return {"summary": PROFILES[profile](out), "answers": out, "usage": response.get("usage")}
 
 
 def element_questions(elements, visual=()):
@@ -245,6 +316,7 @@ def main():
     p.add_argument("--questions", help="共通の質問の配列(JSON)")
     p.add_argument("--element", action="append", default=[], metavar="確認したい内容", help="画面に○○が表示されているか(1件ずつ)")
     p.add_argument("--element-visual", action="append", default=[], metavar="確認したい内容", help="文言のない要素(アイコン・点など)。無くても修正前に ui-checker で確認する")
+    p.add_argument("--profile", choices=sorted(PROFILES), default="ui-verify", help="summary の判定規則(用途)")
     p.add_argument("--raw", action="store_true", help="API の生のレスポンスを標準エラーへ出す")
     p.add_argument("--text", action="append", default=[], metavar="ラベル=ファイル")
     p.add_argument("--image", action="append", default=[], metavar="ラベル=ファイル")
@@ -271,7 +343,7 @@ def main():
         # 応答だけを出す。リクエスト(画像・テキスト)とキーは出さない
         print(json.dumps(response, ensure_ascii=False, indent=2), file=sys.stderr)
     try:
-        result = simplify(response, questions)
+        result = simplify(response, questions, args.profile)
     except (ValueError, AttributeError):
         fail(EXIT_SHAPE, "応答の形が想定と違います")
     json.dump(result, sys.stdout, ensure_ascii=False)

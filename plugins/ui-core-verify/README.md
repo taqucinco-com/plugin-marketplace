@@ -48,6 +48,7 @@ Android・iOS 共通の UI 検証ループ(`ui-verify-loop`)と、その部品�
 - **料金**: API の利用料金がかかる(入力は 100 万トークンあたり 0.10 ドル。正規化した画像 1 枚と短い期待で、1 回あたり入力 1,800 トークン前後)。
 - **キー未設定の扱い**: `DECISION_AI` が有効でキーが無いと、スキルはユーザーに伝えたうえで、Decision AI なしで進めてよいか確認する(黙って切り替えない)。`DECISION_AI` が無効なら、キーがあっても通信しない。
 - **キーの確認方法**: `python3 -I skills/ui-verify-loop/scripts/decide.py --check` を使う(値を出さず、終了コードだけで返す)。`env`・`printenv`・`echo "$OPENAI_API_KEY"` は使わない。
+- **同じ `decide.py` を `pr-ui-evidence`(before/after の変更判定)と `maestro-scenario-author`(ステップ後の進行確認)にも置いている**(プラグインは互いのファイルを参照できないため)。`--profile` で用途を切り替える。変えるときは 3 か所を揃える(このプラグインのテストが、同一かを確認する)。有効化の条件・キーの扱い・送信されるデータは、3 つとも共通。
 - **完了の判定は `ui-checker` が行う。** Decision AI は、要素が明らかに欠けている周回の高速化にだけ使い、全部そろっていても最終確認は `ui-checker` に任せる。
 
 ## テスト

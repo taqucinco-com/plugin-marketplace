@@ -41,4 +41,4 @@ Devin は `marketplace.json` を読まず、プラグイン単位でインスト
 
 ## Decision AI(任意)
 
-`ui-core-verify` の修正ループは、環境変数 `DECISION_AI` と `OPENAI_API_KEY` の**両方**がそろったときだけ、OpenAI の Decisions API で事前判定を高速化できる。そろわなければ従来どおり動く。要件(キーの置き場所・送信されるデータ・料金など)は、[ui-core-verify の README](plugins/ui-core-verify/README.md) に一本化している。
+`ui-core-verify` の修正ループ、`pr-ui-evidence` の変更判定、`maestro-scenario-author` のステップ後の進行確認は、環境変数 `DECISION_AI` と `OPENAI_API_KEY` の**両方**がそろったときだけ、OpenAI の Decisions API で事前判定を高速化できる。そろわなければ従来どおり動く。要件(キーの置き場所・送信されるデータ・料金など)は、[ui-core-verify の README](plugins/ui-core-verify/README.md) に一本化している。

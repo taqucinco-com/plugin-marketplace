@@ -470,5 +470,98 @@ class DecideRequest(TmpCase):
         self.assertEqual(seen["url"], "https://api.openai.com/v1/decisions")
 
 
+PLUGINS = Path(__file__).resolve().parents[2]
+COPIES = {
+    "maestro-scenario-author": PLUGINS / "maestro-scenario-author" / "skills" / "maestro-scenario-author",
+    "pr-ui-evidence": PLUGINS / "pr-ui-evidence" / "skills" / "pr-ui-evidence",
+}
+
+
+class SharedScriptCopies(unittest.TestCase):
+    """プラグインは互いのファイルを参照できないため、同じスクリプトを複数のプラグインに置いている。ずれていないかを確認する。"""
+
+    def test_copies_are_identical(self):
+        for name, skill_dir in COPIES.items():
+            for script in ("decide.py", "normalize-image.sh"):
+                with self.subTest(plugin=name, script=script):
+                    self.assertEqual(
+                        (skill_dir / "scripts" / script).read_bytes(),
+                        (SCRIPTS / script).read_bytes(),
+                        f"{name} の {script} が ui-core-verify とずれている。コピーし直す",
+                    )
+
+    def test_question_templates_are_valid(self):
+        checks = {
+            COPIES["pr-ui-evidence"] / "decision" / "change-questions.json": {"changed", "same_screen"},
+            COPIES["maestro-scenario-author"] / "decision" / "step-questions.json": {"screen_not_usable", "blocked_by_dialog"},
+        }
+        for path, names in checks.items():
+            with self.subTest(path=path.name):
+                qs = json.loads(path.read_text(encoding="utf-8"))
+                self.assertEqual({q["name"] for q in qs}, names)
+                self.assertTrue(all(q["type"] == "predicate" and q["instructions"] for q in qs))
+
+
+class DecideProfiles(unittest.TestCase):
+    def answers(self, **probs):
+        return {"answers": [{"type": "predicate", "name": n, "probability": p} for n, p in probs.items()]}
+
+    def nxt(self, profile, **probs):
+        d = load_decide()
+        return d.simplify(self.answers(**probs), (), profile)["summary"]
+
+    # pr-change
+    def test_pr_change_changed_unchanged_and_check(self):
+        self.assertEqual(self.nxt("pr-change", changed=0.9, same_screen=1.0)["next"], "changed")
+        self.assertEqual(self.nxt("pr-change", changed=0.1, same_screen=1.0)["next"], "unchanged")
+        self.assertEqual(self.nxt("pr-change", changed=0.5, same_screen=1.0), {"next": "check", "reason": "uncertain"})
+
+    def test_pr_change_boundaries(self):
+        self.assertEqual(self.nxt("pr-change", changed=0.8, same_screen=1.0)["next"], "changed")
+        self.assertEqual(self.nxt("pr-change", changed=0.2, same_screen=1.0)["next"], "unchanged")
+        self.assertEqual(self.nxt("pr-change", changed=0.21, same_screen=1.0)["next"], "check")
+
+    def test_pr_change_different_screen_or_missing_answer_needs_check(self):
+        # 別の画面に見えるときは、変更なしと断定しない
+        self.assertEqual(self.nxt("pr-change", changed=0.0, same_screen=0.5)["reason"], "not_same_screen")
+        self.assertEqual(self.nxt("pr-change", changed=0.0)["reason"], "no_answer")
+
+    def test_pr_change_refusal_needs_check(self):
+        d = load_decide()
+        resp = {"answers": [{"type": "refusal", "name": "changed"}, {"type": "predicate", "name": "same_screen", "probability": 1.0}]}
+        self.assertEqual(d.simplify(resp, (), "pr-change")["summary"], {"next": "check", "reason": "refusal"})
+
+    # maestro-step
+    def test_maestro_step_proceeds_only_when_goal_reached_and_not_blocked(self):
+        ok = self.nxt("maestro-step", screen_not_usable=0.0, blocked_by_dialog=0.0, expect_01=1.0)
+        self.assertEqual(ok, {"next": "proceed", "reason": "goal_reached"})
+
+    def test_maestro_step_inspects_on_any_doubt(self):
+        self.assertEqual(self.nxt("maestro-step", screen_not_usable=0.0, blocked_by_dialog=0.9, expect_01=1.0)["next"], "inspect")
+        self.assertEqual(self.nxt("maestro-step", screen_not_usable=0.0, blocked_by_dialog=0.21, expect_01=1.0)["next"], "inspect")
+        self.assertEqual(self.nxt("maestro-step", screen_not_usable=0.6, blocked_by_dialog=0.0, expect_01=1.0)["next"], "inspect")
+        self.assertEqual(self.nxt("maestro-step", screen_not_usable=0.0, blocked_by_dialog=0.0, expect_01=0.5)["next"], "inspect")
+        self.assertEqual(self.nxt("maestro-step", screen_not_usable=0.0, blocked_by_dialog=0.0, expect_01=0.0)["next"], "inspect")
+
+    def test_maestro_step_requires_all_goals_and_a_goal(self):
+        self.assertEqual(
+            self.nxt("maestro-step", screen_not_usable=0.0, blocked_by_dialog=0.0, expect_01=1.0, expect_02=0.5)["next"], "inspect"
+        )
+        self.assertEqual(self.nxt("maestro-step", screen_not_usable=0.0, blocked_by_dialog=0.0)["reason"], "no_goal")
+
+    def test_maestro_step_missing_answers_inspect(self):
+        self.assertEqual(self.nxt("maestro-step", expect_01=1.0)["next"], "inspect")
+
+    def test_default_profile_is_ui_verify(self):
+        d = load_decide()
+        out = d.simplify(self.answers(screen_not_usable=0.0, expect_01=0.0))
+        self.assertEqual(out["summary"]["next"], "fix")
+
+    def test_unknown_profile_is_rejected_by_cli(self):
+        r = run_decide({"DECISION_AI": "1", "OPENAI_API_KEY": SENTINEL}, "--profile", "nope", "--element", "x")
+        self.assertEqual(r.returncode, 2)
+        self.assertNotIn(SENTINEL, r.stdout + r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

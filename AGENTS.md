@@ -11,6 +11,7 @@ Claude Code のプラグインマーケットプレイス用リポジトリ。
 ## 規約
 - プラグイン追加時は `plugins/<name>/` を作り、`marketplace.json` の `plugins` に `source: "./plugins/<name>"` で登録する
 - プラグイン追加時は `plugins/<name>/README.md` も作る。何をするプラグインか、提供するもの(スキル・agent・MCP・スクリプト)、使う側に求めること(必須ツール・環境変数・依存プラグイン・実行環境の制約)を書く。手順の詳細は SKILL.md に任せ、重複して書かない。要件や提供するものを変えたら README も直す
+- `decide.py` と `normalize-image.sh` は `ui-core-verify`・`pr-ui-evidence`・`maestro-scenario-author` に同じものを置く(プラグインは互いのファイルを参照できないため)。変更したら 3 か所を揃える。`python3 -m unittest discover -s plugins/ui-core-verify/tests` が同一かを確認する
 - `plugin.json` の `name` は `marketplace.json` のエントリ名と一致させる(kebab-case)
 - 変更後は `claude plugin validate .` で検証する
 

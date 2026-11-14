@@ -7,7 +7,7 @@
 | パス | 内容 |
 |---|---|
 | `SKILL.md` | スキル本体(検証ループの手順) |
-| `scripts/` | 画像・座標の正規化(`normalize-image.sh`、`scale-structure.py`)と、Decision AI の呼び出し(`decide.py`) |
+| `scripts/` | 画像・座標の正規化(`normalize-image.sh`、`scale-structure.py`)と、Decision AI の呼び出し(`decide.py`。`pr-ui-evidence` と `maestro-scenario-author` にも同じものを置いている。変えるときは 3 か所を揃える) |
 | `decision/` | Decision AI に渡す共通の質問(`base-questions.json`) |
 | `reference/` | Decision AI の動作を手元で確認するための画像・期待・スクリプト |
 

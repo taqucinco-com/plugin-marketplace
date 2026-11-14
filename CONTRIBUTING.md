@@ -30,6 +30,7 @@ claude plugin eval plugins/android-emulator-operate --trust-plugin --scaffold --
 
 ```
 claude plugin eval . --trust-plugin --scaffold --runs 1 --ablation none --no-publish --case 'routing-*'
+claude plugin eval . --trust-plugin --scaffold --allow-tools Write --runs 1 --ablation none --no-publish --case 'pr-evidence-*'
 ```
 
 - evals の `allowed_tools` に書けないツール(Bash・Write・Edit など)は、コマンド側の `--allow-tools` で許可する。`result-save` は `Write`、`sync-devin-codex` の evals は `Bash` が必要。

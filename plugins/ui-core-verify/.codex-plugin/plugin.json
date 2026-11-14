@@ -1,6 +1,6 @@
 {
   "name": "ui-core-verify",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Android・iOS 共通の UI 検証ループ（ui-checker agent・Figma MCP・画像/座標の標準サイズ正規化・結果保存）を提供する共有プラグイン",
   "author": {
     "name": "taqucinco"
